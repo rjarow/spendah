@@ -1,0 +1,31 @@
+
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:///./data/db.sqlite
+      - AI_PROVIDER=openrouter
+      - AI_MODEL=anthropic/claude-3-haiku
+      - FRONTEND_URL=http://localhost:5173
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+
+volumes:
+  data:

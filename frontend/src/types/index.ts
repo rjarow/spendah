@@ -200,3 +200,35 @@ export interface RecentTransaction {
   category: string
   amount: number
 }
+
+// Recurring types
+export type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly'
+
+export interface RecurringGroup {
+  id: string
+  name: string
+  merchant_pattern: string
+  expected_amount: number | null
+  amount_variance: number | null
+  frequency: Frequency
+  category_id: string | null
+  last_seen_date: string | null
+  next_expected_date: string | null
+  is_active: boolean
+  created_at: string
+  transaction_count: number | null
+}
+
+export interface DetectionResult {
+  merchant_pattern: string
+  suggested_name: string
+  transaction_ids: string[]
+  frequency: Frequency
+  average_amount: number
+  confidence: number
+}
+
+export interface DetectionResponse {
+  detected: DetectionResult[]
+  total_found: number
+}

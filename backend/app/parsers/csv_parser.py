@@ -3,6 +3,7 @@ CSV file parser.
 """
 
 import csv
+import sys
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
@@ -87,7 +88,9 @@ class CSVParser(BaseParser):
         """Parse a single row into a transaction dict"""
 
         date_str = row[mapping['date_col']].strip()
+        print(f"DEBUG CSV Parser - date_str: {date_str!r}, date_format: {date_format!r}", file=sys.stderr)
         txn_date = datetime.strptime(date_str, date_format).date()
+        print(f"DEBUG CSV Parser - parsed: {txn_date!r}", file=sys.stderr)
 
         amount = self._parse_amount(row, mapping)
         if amount is None:

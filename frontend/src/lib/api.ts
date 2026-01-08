@@ -21,6 +21,8 @@ import type {
   DashboardSummary,
   MonthTrend,
   RecentTransaction,
+  RecurringGroup,
+  DetectionResponse,
 } from '@/types'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -197,5 +199,69 @@ export const testAIConnection = async () => {
   return response.data
 }
 
+// Recurring
+export const getRecurringGroups = async (includeInactive: boolean = false) => {
+  const response = await api.get<RecurringGroup[]>('/recurring', { params: { include_inactive: includeInactive } })
+  return response.data
+}
+
+export const getRecurringGroup = async (id: string) => {
+  const response = await api.get<RecurringGroup>(`/recurring/${id}`)
+  return response.data
+}
+
+export const createRecurringGroup = async (data: {
+  name: string
+  merchant_pattern: string
+  frequency: string
+  expected_amount?: number
+  category_id?: string
+}) => {
+  const response = await api.post<RecurringGroup>('/recurring', data)
+  return response.data
+}
+
+export const updateRecurringGroup = async (id: string, data: {
+  name?: string
+  merchant_pattern?: string
+  frequency?: string
+  expected_amount?: number
+  is_active?: boolean
+}) => {
+  const response = await api.patch<RecurringGroup>(`/recurring/${id}`, data)
+  return response.data
+}
+
+export const deleteRecurringGroup = async (id: string) => {
+  await api.delete(`/recurring/${id}`)
+}
+
+export const detectRecurring = async () => {
+  const response = await api.post<DetectionResponse>('/recurring/detect')
+  return response.data
+}
+
+export const applyDetection = async (_detectionIndex: number) => {
+  const response = await api.post<RecurringGroup>('/recurring/detect/apply', null, {
+    params: { detection_index: _detectionIndex } as any
+  })
+  return response.data
+}
+
+export const unmarkTransactionRecurring = async (_transactionId: string) => {
+  const response = await api.post('/recurring/transactions/${_transactionId}/unmark')
+  return response.data
+}
+
+export const markTransactionRecurring = async (_transactionId: string, data: {
+  recurring_group_id?: string
+  create_new?: boolean
+  name?: string
+  frequency?: string
+}) => {
+  await api.post(`/recurring/transactions/${_transactionId}/mark`, data)
+}
+
 export default api
+
 

@@ -39,7 +39,7 @@ class ImportUploadResponse(BaseModel):
 class ImportConfirmRequest(BaseModel):
     account_id: str
     column_mapping: ColumnMapping
-    date_format: str = "%Y-%m-%d"
+    date_format: str = "%d/%m/%Y"
     save_format: bool = False
     format_name: Optional[str] = None
 

@@ -14,7 +14,7 @@ dist/
 
 # Environment
 .env
-
+handoff.md
 # IDE
 .vscode/
 .idea/

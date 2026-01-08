@@ -71,7 +71,7 @@ class AIClient:
         try:
             if self.provider == "openrouter" and settings.openrouter_api_key:
                 env_key = settings.openrouter_api_key
-                os.environ["OPENAI_API_KEY"] = env_key
+                os.environ["OPENROUTER_API_KEY"] = env_key
             elif self.provider == "anthropic" and settings.anthropic_api_key:
                 env_key = settings.anthropic_api_key
                 os.environ["ANTHROPIC_API_KEY"] = env_key
@@ -86,7 +86,9 @@ class AIClient:
             raise
         finally:
             if env_key:
-                if self.provider == "openrouter" or self.provider == "openai":
+                if self.provider == "openrouter":
+                    os.environ.pop("OPENROUTER_API_KEY", None)
+                elif self.provider == "openai":
                     os.environ.pop("OPENAI_API_KEY", None)
                 elif self.provider == "anthropic":
                     os.environ.pop("ANTHROPIC_API_KEY", None)

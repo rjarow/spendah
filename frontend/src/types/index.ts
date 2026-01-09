@@ -232,3 +232,38 @@ export interface DetectionResponse {
   detected: DetectionResult[]
   total_found: number
 }
+
+// Alert types
+export type AlertType = 'large_purchase' | 'price_increase' | 'new_recurring' | 'unusual_merchant' | 'annual_charge'
+export type AlertSeverity = 'info' | 'warning' | 'attention'
+
+export interface Alert {
+  id: string
+  type: AlertType
+  severity: AlertSeverity
+  title: string
+  description: string
+  transaction_id: string | null
+  recurring_group_id: string | null
+  metadata: Record<string, any> | null
+  is_read: boolean
+  is_dismissed: boolean
+  action_taken: string | null
+  created_at: string
+}
+
+export interface AlertsListResponse {
+  items: Alert[]
+  unread_count: number
+  total: number
+}
+
+export interface AlertSettings {
+  id: string
+  large_purchase_threshold: number | null
+  large_purchase_multiplier: number
+  unusual_merchant_threshold: number
+  alerts_enabled: boolean
+  created_at: string
+  updated_at: string | null
+}

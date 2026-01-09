@@ -25,10 +25,10 @@ import type {
   DetectionResponse,
 } from '@/types'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE = `${window.location.protocol}//${window.location.hostname}:8000/api/v1`
 
 const api = axios.create({
-  baseURL: `${API_BASE_URL}/api/v1`,
+  baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -203,6 +203,87 @@ export const testAIConnection = async () => {
 export const getRecurringGroups = async (includeInactive: boolean = false) => {
   const response = await api.get<RecurringGroup[]>('/recurring', { params: { include_inactive: includeInactive } })
   return response.data
+}
+
+// Alerts
+export interface Alert {
+  id: string
+  type: 'large_purchase' | 'price_increase' | 'new_recurring' | 'unusual_merchant' | 'annual_charge'
+  severity: 'info' | 'warning' | 'attention'
+  title: string
+  description: string
+  transaction_id: string | null
+  recurring_group_id: string | null
+  metadata: Record<string, any> | null
+  is_read: boolean
+  is_dismissed: boolean
+  action_taken: string | null
+  created_at: string
+}
+
+export interface AlertsListResponse {
+  items: Alert[]
+  unread_count: number
+  total: number
+}
+
+export interface AlertSettings {
+  id: string
+  large_purchase_threshold: number | null
+  large_purchase_multiplier: number
+  unusual_merchant_threshold: number
+  alerts_enabled: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export async function getAlerts(params?: {
+  is_read?: boolean
+  is_dismissed?: boolean
+  type?: string
+  limit?: number
+}) {
+  const response = await api.get('/alerts', { params })
+  return response.data as AlertsListResponse
+}
+
+export async function getUnreadCount() {
+  const response = await api.get('/alerts/unread-count')
+  return response.data as { count: number }
+}
+
+export async function updateAlert(id: string, data: {
+  is_read?: boolean
+  is_dismissed?: boolean
+  action_taken?: string
+}) {
+  const response = await api.patch(`/alerts/${id}`, data)
+  return response.data as Alert
+}
+
+export async function markAllAlertsRead() {
+  const response = await api.post('/alerts/mark-all-read')
+  return response.data
+}
+
+export async function deleteAlert(id: string) {
+  const response = await api.delete(`/alerts/${id}`)
+  return response.data
+}
+
+export async function getAlertSettings() {
+  const response = await api.get('/alerts/settings')
+  return response.data as AlertSettings
+}
+
+export async function updateAlertSettings(data: {
+  large_purchase_threshold?: number | null
+  large_purchase_multiplier?: number
+  unusual_merchant_threshold?: number
+  alerts_enabled?: boolean
+}) {
+  const response = await api.patch('/alerts/settings', data)
+  return response.data as AlertSettings
 }
 
 export const getRecurringGroup = async (id: string) => {

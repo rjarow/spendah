@@ -25,6 +25,7 @@ from app.parsers.csv_parser import CSVParser
 from app.parsers.ofx_parser import OFXParser
 from app.services.deduplication_service import generate_transaction_hash, is_duplicate
 from app.services.ai_service import detect_csv_format, clean_merchant_name, categorize_transaction
+from app.services.alerts_service import analyze_transaction_for_alerts
 
 import asyncio
 
@@ -192,6 +193,10 @@ def process_import(
                     ai_categorized=False
                 )
                 db.add(transaction)
+                try:
+                    analyze_transaction_for_alerts(db, transaction)
+                except Exception as e:
+                    print(f"Alert analysis failed for transaction: {e}")
                 imported += 1
 
             except Exception as e:
@@ -320,6 +325,10 @@ async def process_import_with_ai(
                     ai_categorized=ai_categorized
                 )
                 db.add(transaction)
+                try:
+                    analyze_transaction_for_alerts(db, transaction)
+                except Exception as e:
+                    print(f"Alert analysis failed for transaction: {e}")
                 imported += 1
 
             except Exception as e:

@@ -27,7 +27,7 @@ class Account(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(100), nullable=False)
-    type = Column(Enum(AccountType), nullable=False)
+    account_type = Column(Enum(AccountType), nullable=False)
     learned_format_id = Column(String(36), ForeignKey("learned_formats.id"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

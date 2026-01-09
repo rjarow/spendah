@@ -15,7 +15,7 @@ from app.schemas.account import (
     AccountList,
 )
 
-router = APIRouter(prefix="/accounts", tags=["accounts"])
+router = APIRouter(tags=["accounts"])
 
 
 @router.get("", response_model=AccountList)

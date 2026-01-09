@@ -232,6 +232,8 @@ export interface AlertSettings {
   large_purchase_threshold: number | null
   large_purchase_multiplier: number
   unusual_merchant_threshold: number
+  subscription_review_days: number
+  annual_charge_warning_days: number
   alerts_enabled: boolean
   created_at: string
   updated_at: string | null
@@ -341,6 +343,56 @@ export const markTransactionRecurring = async (_transactionId: string, data: {
   frequency?: string
 }) => {
   await api.post(`/recurring/transactions/${_transactionId}/mark`, data)
+}
+
+// Subscription Intelligence
+
+export interface SubscriptionInsight {
+  type: 'unused' | 'price_increase' | 'high_cost' | 'annual_upcoming' | 'duplicate'
+  recurring_group_id: string
+  merchant: string
+  amount: number
+  frequency: string
+  insight: string
+  recommendation: string
+}
+
+export interface SubscriptionReviewResponse {
+  total_monthly_cost: number
+  total_yearly_cost: number
+  subscription_count: number
+  insights: SubscriptionInsight[]
+  summary: string
+  alert_id?: string
+}
+
+export interface UpcomingRenewal {
+  recurring_group_id: string
+  merchant: string
+  amount: number
+  frequency: string
+  next_date: string
+  days_until: number
+}
+
+export interface UpcomingRenewalsResponse {
+  renewals: UpcomingRenewal[]
+  total_upcoming_30_days: number
+}
+
+export async function triggerSubscriptionReview() {
+  const response = await api.post('/alerts/subscription-review')
+  return response.data as SubscriptionReviewResponse
+}
+
+export async function getUpcomingRenewals(days: number = 30) {
+  const response = await api.get('/alerts/upcoming-renewals', { params: { days } })
+  return response.data as UpcomingRenewalsResponse
+}
+
+export async function detectAnnualCharges() {
+  const response = await api.post('/alerts/detect-annual')
+  return response.data
 }
 
 export default api

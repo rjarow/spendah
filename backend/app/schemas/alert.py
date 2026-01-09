@@ -66,6 +66,8 @@ class AlertSettingsBase(BaseModel):
     large_purchase_threshold: Optional[float] = None
     large_purchase_multiplier: float = 3.0
     unusual_merchant_threshold: float = 200.0
+    subscription_review_days: int = 90
+    annual_charge_warning_days: int = 14
     alerts_enabled: bool = True
 
 
@@ -73,7 +75,42 @@ class AlertSettingsUpdate(BaseModel):
     large_purchase_threshold: Optional[float] = None
     large_purchase_multiplier: Optional[float] = None
     unusual_merchant_threshold: Optional[float] = None
+    subscription_review_days: Optional[int] = None
+    annual_charge_warning_days: Optional[int] = None
     alerts_enabled: Optional[bool] = None
+
+
+class SubscriptionInsight(BaseModel):
+    type: str
+    recurring_group_id: str
+    merchant: str
+    amount: float
+    frequency: str
+    insight: str
+    recommendation: str
+
+
+class SubscriptionReviewResponse(BaseModel):
+    total_monthly_cost: float
+    total_yearly_cost: float
+    subscription_count: int
+    insights: List[SubscriptionInsight]
+    summary: str
+    alert_id: Optional[str] = None
+
+
+class UpcomingRenewal(BaseModel):
+    recurring_group_id: str
+    merchant: str
+    amount: float
+    frequency: str
+    next_date: str
+    days_until: int
+
+
+class UpcomingRenewalsResponse(BaseModel):
+    renewals: List[UpcomingRenewal]
+    total_upcoming_30_days: float
 
 
 class AlertSettingsResponse(AlertSettingsBase):

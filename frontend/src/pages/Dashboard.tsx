@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getDashboardSummary, getDashboardTrends, getRecentTransactions } from '@/lib/api'
+import { getDashboardSummary, getDashboardTrends, getRecentTransactions, getUpcomingRenewals } from '@/lib/api'
 import { formatCurrency, formatMonth, formatPercent } from '@/lib/formatters'
 import { Link } from 'react-router-dom'
 
@@ -23,6 +23,11 @@ export default function Dashboard() {
   const { data: recentTransactions } = useQuery({
     queryKey: ['recent-transactions'],
     queryFn: () => getRecentTransactions(5),
+  })
+
+  const { data: upcomingRenewals } = useQuery({
+    queryKey: ['upcoming-renewals'],
+    queryFn: () => getUpcomingRenewals(30),
   })
 
   const navigateMonth = (direction: number) => {
@@ -165,6 +170,39 @@ export default function Dashboard() {
             )
           })}
         </div>
+      </div>
+
+      {/* Upcoming Renewals */}
+      <div className="bg-white border rounded-lg p-4">
+        <h2 className="text-lg font-semibold mb-4">Upcoming Renewals</h2>
+        <div className="space-y-3">
+          {upcomingRenewals?.renewals?.slice(0, 5).map((renewal) => (
+            <div key={renewal.recurring_group_id} className="flex justify-between items-center">
+              <div>
+                <div className="text-sm font-medium">{renewal.merchant}</div>
+                <div className="text-xs text-gray-500">
+                  {renewal.days_until === 0 ? 'Today' :
+                   renewal.days_until === 1 ? 'Tomorrow' :
+                   `In ${renewal.days_until} days`}
+                </div>
+              </div>
+              <div className="text-sm font-medium text-red-600">
+                {formatCurrency(renewal.amount)}
+              </div>
+            </div>
+          ))}
+          {(!upcomingRenewals?.renewals || upcomingRenewals.renewals.length === 0) && (
+            <p className="text-sm text-gray-500">No upcoming renewals in next 30 days</p>
+          )}
+        </div>
+        {upcomingRenewals?.total_upcoming_30_days > 0 && (
+          <div className="mt-3 pt-3 border-t text-sm">
+            <span className="text-gray-500">Total next 30 days:</span>
+            <span className="font-medium text-red-600 ml-2">
+              {formatCurrency(upcomingRenewals.total_upcoming_30_days)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )

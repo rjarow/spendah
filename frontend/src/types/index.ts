@@ -263,7 +263,44 @@ export interface AlertSettings {
   large_purchase_threshold: number | null
   large_purchase_multiplier: number
   unusual_merchant_threshold: number
+  subscription_review_days: number
+  annual_charge_warning_days: number
   alerts_enabled: boolean
   created_at: string
   updated_at: string | null
+}
+
+// Subscription Intelligence types
+
+export interface SubscriptionInsight {
+  type: 'unused' | 'price_increase' | 'high_cost' | 'annual_upcoming' | 'duplicate'
+  recurring_group_id: string
+  merchant: string
+  amount: number
+  frequency: string
+  insight: string
+  recommendation: string
+}
+
+export interface SubscriptionReviewResponse {
+  total_monthly_cost: number
+  total_yearly_cost: number
+  subscription_count: number
+  insights: SubscriptionInsight[]
+  summary: string
+  alert_id?: string
+}
+
+export interface UpcomingRenewal {
+  recurring_group_id: string
+  merchant: string
+  amount: number
+  frequency: string
+  next_date: string
+  days_until: number
+}
+
+export interface UpcomingRenewalsResponse {
+  renewals: UpcomingRenewal[]
+  total_upcoming_30_days: number
 }

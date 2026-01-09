@@ -14,6 +14,8 @@ from app.schemas.alert import (
     UnreadCountResponse,
     AlertSettingsResponse,
     AlertSettingsUpdate,
+    SubscriptionReviewResponse,
+    UpcomingRenewalsResponse,
 )
 from app.services import alerts_service
 
@@ -135,6 +137,8 @@ def get_alert_settings(db: Session = Depends(get_db)):
         large_purchase_threshold=float(settings.large_purchase_threshold) if settings.large_purchase_threshold else None,
         large_purchase_multiplier=float(settings.large_purchase_multiplier),
         unusual_merchant_threshold=float(settings.unusual_merchant_threshold),
+        subscription_review_days=int(settings.subscription_review_days) if settings.subscription_review_days else 90,
+        annual_charge_warning_days=int(settings.annual_charge_warning_days) if settings.annual_charge_warning_days else 14,
         alerts_enabled=settings.alerts_enabled,
         created_at=settings.created_at,
         updated_at=settings.updated_at,
@@ -162,7 +166,41 @@ def update_alert_settings(
         large_purchase_threshold=float(settings.large_purchase_threshold) if settings.large_purchase_threshold else None,
         large_purchase_multiplier=float(settings.large_purchase_multiplier),
         unusual_merchant_threshold=float(settings.unusual_merchant_threshold),
+        subscription_review_days=int(settings.subscription_review_days) if settings.subscription_review_days else 90,
+        annual_charge_warning_days=int(settings.annual_charge_warning_days) if settings.annual_charge_warning_days else 14,
         alerts_enabled=settings.alerts_enabled,
         created_at=settings.created_at,
         updated_at=settings.updated_at,
     )
+
+
+@router.post("/subscription-review", response_model=SubscriptionReviewResponse)
+async def trigger_subscription_review(db: Session = Depends(get_db)):
+    """
+    Manually trigger a subscription review.
+    Uses AI to analyze subscriptions and create insights.
+    """
+    result = await alerts_service.run_subscription_review(db)
+    return SubscriptionReviewResponse(**result)
+
+
+@router.get("/upcoming-renewals", response_model=UpcomingRenewalsResponse)
+def get_upcoming_renewals(
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db)
+):
+    """Get upcoming subscription renewals."""
+    result = alerts_service.get_upcoming_renewals(db, days)
+    return UpcomingRenewalsResponse(**result)
+
+
+@router.post("/detect-annual")
+async def detect_annual_charges(db: Session = Depends(get_db)):
+    """
+    Detect annual subscription patterns and create alerts for upcoming renewals.
+    """
+    detected = await alerts_service.detect_annual_charges(db)
+    return {
+        "detected": len(detected),
+        "charges": detected
+    }

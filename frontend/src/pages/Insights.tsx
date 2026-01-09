@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getAlerts, updateAlert, deleteAlert, getAlertSettings, updateAlertSettings } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import SubscriptionReviewModal from '@/components/alerts/SubscriptionReviewModal'
 
 const SEVERITY_STYLES: Record<string, string> = {
   info: 'bg-blue-50 border-blue-200 text-blue-800',
@@ -27,12 +28,13 @@ export default function Insights() {
   const queryClient = useQueryClient()
   const [showDismissed, setShowDismissed] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showReviewModal, setShowReviewModal] = useState(false)
 
   const { data: alertsData, isLoading } = useQuery({
     queryKey: ['alerts', { is_dismissed: showDismissed ? undefined : false }],
     queryFn: () => getAlerts({
       is_dismissed: showDismissed ? undefined : false,
-      limit: 100
+      limit: 100,
     }),
   })
 
@@ -42,7 +44,7 @@ export default function Insights() {
   })
 
   const dismissMutation = useMutation({
-    mutationFn: (id: string) => updateAlert(id, { is_dismissed: true }),
+    mutationFn: updateAlert,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] })
     },
@@ -88,6 +90,9 @@ export default function Insights() {
             />
             Show dismissed
           </label>
+          <Button onClick={() => setShowReviewModal(true)}>
+            📋 Subscription Review
+          </Button>
           <Button
             variant="outline"
             onClick={() => setShowSettings(!showSettings)}
@@ -114,7 +119,7 @@ export default function Insights() {
                 className="border rounded px-3 py-2 w-full"
                 value={settings.large_purchase_multiplier}
                 onChange={(e) => updateSettingsMutation.mutate({
-                  large_purchase_multiplier: parseFloat(e.target.value)
+                  large_purchase_multiplier: parseFloat(e.target.value),
                 })}
               />
               <p className="text-xs text-gray-500 mt-1">
@@ -133,7 +138,7 @@ export default function Insights() {
                 className="border rounded px-3 py-2 w-full"
                 value={settings.unusual_merchant_threshold}
                 onChange={(e) => updateSettingsMutation.mutate({
-                  unusual_merchant_threshold: parseFloat(e.target.value)
+                  unusual_merchant_threshold: parseFloat(e.target.value),
                 })}
               />
               <p className="text-xs text-gray-500 mt-1">
@@ -147,7 +152,7 @@ export default function Insights() {
               type="checkbox"
               checked={settings.alerts_enabled}
               onChange={(e) => updateSettingsMutation.mutate({
-                alerts_enabled: e.target.checked
+                alerts_enabled: e.target.checked,
               })}
               className="rounded"
             />
@@ -187,7 +192,10 @@ export default function Insights() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => dismissMutation.mutate(alert.id)}
+                      onClick={() => dismissMutation.mutate({
+                        id: alert.id,
+                        is_read: true,
+                      })}
                     >
                       Dismiss
                     </Button>
@@ -209,6 +217,11 @@ export default function Insights() {
           ))
         )}
       </div>
+
+      <SubscriptionReviewModal
+        isOpen={showReviewModal}
+        onClose={() => setShowReviewModal(false)}
+      />
     </div>
   )
 }

@@ -12,7 +12,14 @@ from app.models.transaction import Transaction
 from app.models.recurring import RecurringGroup
 from app.models.category import Category
 from app.ai.client import get_ai_client
-from app.ai.prompts import ANOMALY_DETECTION_SYSTEM, ANOMALY_DETECTION_USER
+from app.ai.prompts import (
+    ANOMALY_DETECTION_SYSTEM, ANOMALY_DETECTION_USER,
+    SUBSCRIPTION_REVIEW_SYSTEM, SUBSCRIPTION_REVIEW_USER,
+    ANNUAL_CHARGE_DETECTION_SYSTEM, ANNUAL_CHARGE_DETECTION_USER
+)
+from app.models.recurring import Frequency
+import json
+from datetime import date
 
 
 def get_or_create_settings(db: Session) -> AlertSettings:
@@ -241,3 +248,257 @@ def create_new_recurring_alert(db: Session, recurring_group: RecurringGroup) -> 
     db.add(alert)
     db.commit()
     return alert
+
+
+async def run_subscription_review(db: Session) -> Dict[str, Any]:
+    """
+    Run an AI-powered subscription review.
+    Creates a subscription_review alert and returns insights.
+    """
+    settings = get_or_create_settings(db)
+
+    # Get active recurring charges
+    recurring = db.query(RecurringGroup).filter(
+        RecurringGroup.is_active == True
+    ).all()
+
+    if not recurring:
+        return {
+            "total_monthly_cost": 0,
+            "total_yearly_cost": 0,
+            "subscription_count": 0,
+            "insights": [],
+            "summary": "No active subscriptions found."
+        }
+
+    # Calculate costs
+    total_monthly = 0
+    for r in recurring:
+        if r.expected_amount:
+            amount = float(r.expected_amount)
+            if r.frequency == Frequency.weekly:
+                total_monthly += amount * 4.33
+            elif r.frequency == Frequency.biweekly:
+                total_monthly += amount * 2.17
+            elif r.frequency == Frequency.monthly:
+                total_monthly += amount
+            elif r.frequency == Frequency.quarterly:
+                total_monthly += amount / 3
+            elif r.frequency == Frequency.yearly:
+                total_monthly += amount / 12
+
+    total_yearly = total_monthly * 12
+
+    # Prepare data for AI
+    recurring_json = json.dumps([
+        {
+            "id": str(r.id),
+            "name": r.name,
+            "merchant_pattern": r.merchant_pattern,
+            "amount": float(r.expected_amount) if r.expected_amount else 0,
+            "frequency": r.frequency.value,
+            "last_seen": r.last_seen_date.isoformat() if r.last_seen_date else None,
+            "next_expected": r.next_expected_date.isoformat() if r.next_expected_date else None,
+        }
+        for r in recurring
+    ], indent=2)
+
+    # Get transaction activity (simplified - count per merchant)
+    cutoff = datetime.now() - timedelta(days=90)
+
+    activity = {}
+    for r in recurring:
+        count = db.query(Transaction).filter(
+            Transaction.recurring_group_id == r.id,
+            Transaction.date >= cutoff.date()
+        ).count()
+        activity[r.name] = count
+
+    activity_json = json.dumps(activity, indent=2)
+
+    # Get last review date
+    last_review = db.query(Alert).filter(
+        Alert.type == AlertType.subscription_review
+    ).order_by(Alert.created_at.desc()).first()
+
+    last_review_date = last_review.created_at.isoformat() if last_review else "Never"
+
+    # Call AI for review
+    client = get_ai_client()
+    user_prompt = SUBSCRIPTION_REVIEW_USER.format(
+        recurring_json=recurring_json,
+        activity_json=activity_json,
+        last_review_date=last_review_date
+    )
+
+    try:
+        result = await client.complete_json(
+            system_prompt=SUBSCRIPTION_REVIEW_SYSTEM,
+            user_prompt=user_prompt,
+            temperature=0.3,
+            max_tokens=2000
+        )
+
+        insights = result.get("insights", [])
+        summary = result.get("summary", "Review complete.")
+
+    except Exception as e:
+        print(f"Subscription review AI failed: {e}")
+        insights = []
+        summary = "Unable to generate AI insights. Review your subscriptions manually."
+
+    # Create review alert
+    alert = Alert(
+        id=str(uuid.uuid4()),
+        type=AlertType.subscription_review,
+        severity=Severity.info,
+        title=f"Subscription Review: {len(recurring)} active subscriptions",
+        description=f"Monthly: ${total_monthly:.2f} | Yearly: ${total_yearly:.2f}. {summary}",
+        metadata={
+            "total_monthly": total_monthly,
+            "total_yearly": total_yearly,
+            "subscription_count": len(recurring),
+            "insights": insights
+        }
+    )
+    db.add(alert)
+
+    # Update last review timestamp in settings
+    settings.last_subscription_review = datetime.now()
+    settings.updated_at = datetime.now()
+
+    db.commit()
+
+    return {
+        "total_monthly_cost": total_monthly,
+        "total_yearly_cost": total_yearly,
+        "subscription_count": len(recurring),
+        "insights": insights,
+        "summary": summary,
+        "alert_id": str(alert.id)
+    }
+
+
+def get_upcoming_renewals(db: Session, days: int = 30) -> List[Dict[str, Any]]:
+    """Get recurring charges expected in the next N days."""
+    cutoff = date.today() + timedelta(days=days)
+
+    recurring = db.query(RecurringGroup).filter(
+        RecurringGroup.is_active == True,
+        RecurringGroup.next_expected_date != None,
+        RecurringGroup.next_expected_date <= cutoff
+    ).order_by(RecurringGroup.next_expected_date).all()
+
+    renewals = []
+    total = 0
+
+    for r in recurring:
+        amount = float(r.expected_amount) if r.expected_amount else 0
+        days_until = (r.next_expected_date - date.today()).days
+
+        renewals.append({
+            "recurring_group_id": str(r.id),
+            "merchant": r.name,
+            "amount": amount,
+            "frequency": r.frequency.value,
+            "next_date": r.next_expected_date.isoformat(),
+            "days_until": days_until
+        })
+        total += amount
+
+    return {
+        "renewals": renewals,
+        "total_upcoming_30_days": total
+    }
+
+
+async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
+    """
+    Use AI to detect annual subscription patterns.
+    Creates annual_charge alerts for upcoming renewals.
+    """
+    settings = get_or_create_settings(db)
+    warning_days = settings.annual_charge_warning_days or 14
+
+    # Get transactions from last 18 months
+    cutoff = date.today() - timedelta(days=548)
+
+    transactions = db.query(Transaction).filter(
+        Transaction.date >= cutoff,
+        Transaction.amount < 0,
+        func.abs(Transaction.amount) > 20  # Skip small charges
+    ).order_by(Transaction.date.desc()).all()
+
+    if len(transactions) < 10:
+        return []
+
+    txn_json = json.dumps([
+        {
+            "id": str(t.id),
+            "date": t.date.isoformat(),
+            "amount": float(t.amount),
+            "merchant": t.clean_merchant or t.raw_description,
+        }
+        for t in transactions
+    ], indent=2)
+
+    client = get_ai_client()
+    user_prompt = ANNUAL_CHARGE_DETECTION_USER.format(
+        transactions_json=txn_json,
+        current_date=date.today().isoformat()
+    )
+
+    try:
+        result = await client.complete_json(
+            system_prompt=ANNUAL_CHARGE_DETECTION_SYSTEM,
+            user_prompt=user_prompt,
+            temperature=0.1,
+            max_tokens=1500
+        )
+
+        annual_subs = result.get("annual_subscriptions", [])
+
+    except Exception as e:
+        print(f"Annual charge detection failed: {e}")
+        return []
+
+    # Create alerts for upcoming annual charges
+    created_alerts = []
+    for sub in annual_subs:
+        if sub.get("confidence", 0) < 0.6:
+            continue
+
+        predicted_date = sub.get("predicted_next_date")
+        if not predicted_date:
+            continue
+
+        try:
+            next_date = datetime.strptime(predicted_date, "%Y-%m-%d").date()
+        except:
+            continue
+
+        days_until = (next_date - date.today()).days
+
+        # Only alert if within warning window
+        if 0 < days_until <= warning_days:
+            alert = Alert(
+                id=str(uuid.uuid4()),
+                type=AlertType.annual_charge,
+                severity=Severity.info,
+                title=f"Annual renewal: {sub['merchant']}",
+                description=f"${sub['amount']:.2f} expected in {days_until} days (around {predicted_date})",
+                metadata={
+                    "merchant": sub["merchant"],
+                    "amount": sub["amount"],
+                    "predicted_date": predicted_date,
+                    "days_until": days_until,
+                    "confidence": sub.get("confidence", 0)
+                }
+            )
+            db.add(alert)
+            created_alerts.append(sub)
+
+    if created_alerts:
+        db.commit()
+
+    return created_alerts

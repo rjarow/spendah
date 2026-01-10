@@ -11,6 +11,7 @@ from app.ai.prompts import (
 from app.models.category import Category
 from app.models.user_correction import UserCorrection
 from app.config import settings
+from app.ai.prompts.format_detection import redact_sample_rows
 
 
 async def detect_csv_format(
@@ -22,10 +23,12 @@ async def detect_csv_format(
 
     client = get_ai_client()
 
-    rows_str = "\n".join([", ".join(row) for row in sample_rows])
+    # Redact sample rows for privacy before sending to AI
+    redacted_headers, redacted_rows = redact_sample_rows(headers, sample_rows)
+    rows_str = "\n".join([", ".join(row) for row in redacted_rows])
 
     user_prompt = FORMAT_DETECTION_USER.format(
-        headers=", ".join(headers),
+        headers=", ".join(redacted_headers),
         sample_rows=rows_str
     )
 

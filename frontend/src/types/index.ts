@@ -304,3 +304,22 @@ export interface UpcomingRenewalsResponse {
   renewals: UpcomingRenewal[]
   total_upcoming_30_days: number
 }
+
+// Privacy types
+export interface ProviderPrivacyConfig {
+  provider: string
+  obfuscation_enabled: boolean
+}
+
+export interface TokenStats {
+  merchants: number
+  accounts: number
+  people: number
+  date_shift_days: number
+}
+
+export interface PrivacySettings {
+  obfuscation_enabled: boolean
+  provider_settings: ProviderPrivacyConfig[]
+  stats: TokenStats
+}

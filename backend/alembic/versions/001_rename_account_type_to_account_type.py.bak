@@ -8,6 +8,9 @@ Create Date: 2026-01-09 03:50:00
 from alembic import op
 import sqlalchemy as sa
 
+revision = '001'
+down_revision = None
+
 
 def upgrade() -> None:
     # Rename column type to account_type in accounts table

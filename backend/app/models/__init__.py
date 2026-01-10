@@ -10,6 +10,8 @@ from app.models.alert import Alert, AlertSettings, AlertType, Severity
 from app.models.learned_format import LearnedFormat, FileType, AmountStyle
 from app.models.import_log import ImportLog, ImportStatus
 from app.models.user_correction import UserCorrection
+from app.models.token_map import TokenMap, TokenType, DateShift
+from app.models.privacy_settings import PrivacySettings, get_or_create_privacy_settings
 
 __all__ = [
     "Account",
@@ -28,4 +30,9 @@ __all__ = [
     "ImportLog",
     "ImportStatus",
     "UserCorrection",
+    "TokenMap",
+    "TokenType",
+    "DateShift",
+    "PrivacySettings",
+    "get_or_create_privacy_settings",
 ]

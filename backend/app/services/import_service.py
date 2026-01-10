@@ -6,7 +6,7 @@ import os
 import uuid
 import shutil
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -387,6 +387,117 @@ def get_import_status(db: Session, import_id: str) -> ImportStatusResponse:
         transactions_skipped=import_log.transactions_skipped or 0,
         errors=[import_log.error_message] if import_log.error_message else []
     )
+
+
+async def categorize_new_merchants_bulk(
+    merchants: List[str],
+    db: Session
+) -> Dict[str, Dict[str, str]]:
+    """
+    Categorize only NEW merchants in a single AI call.
+
+    Privacy note: Sending merchant names alone (without amounts/dates/patterns)
+    is NOT a privacy concern - it reveals nothing about spending behavior.
+
+    Returns: {merchant: {"clean": "...", "category": "...", "subcategory": "..."}}
+    """
+    from app.services.tokenization_service import TokenizationService
+    from app.models.token_map import TokenMap, TokenType
+
+    token_service = TokenizationService(db)
+
+    # Filter to only unknown merchants
+    unknown_merchants = token_service.get_unknown_merchants(merchants)
+
+    if not unknown_merchants:
+        # All merchants already known, return from token map
+        return _get_cached_categorizations(merchants, db)
+
+    # Single AI call for all unknown merchants
+    # Note: This is merchant names ONLY - no amounts, dates, or patterns
+    client = get_ai_client()
+
+    categories = db.query(Category).all()
+    categories_json = json.dumps([
+        {"id": str(c.id), "name": c.name, "parent_id": str(c.parent_id) if c.parent_id else None}
+        for c in categories
+    ], indent=2)
+
+    prompt = f"""Categorize these merchant names from bank transactions.
+
+For each merchant, provide:
+1. A clean, human-readable name
+2. The category and subcategory
+
+Merchants to categorize:
+{json.dumps(unknown_merchants, indent=2)}
+
+Available categories:
+{categories_json}
+
+Respond with JSON array:
+[
+  {{"raw": "WHOLEFDS #1234 SAN FRAN", "clean": "Whole Foods", "category": "Food", "subcategory": "Groceries"}},
+  ...
+]"""
+
+    try:
+        result = await client.complete_json(
+            system_prompt="You are a financial data expert. Categorize merchant names.",
+            user_prompt=prompt,
+            temperature=0.1,
+            max_tokens=2000
+        )
+        categorizations = result if isinstance(result, list) else result.get("merchants", [])
+
+        # Store in token map for future use
+        token_map_result = {}
+        for cat in categorizations:
+            raw = cat.get("raw")
+            token_service.tokenize_merchant(
+                raw,
+                category=cat.get("category"),
+                subcategory=cat.get("subcategory")
+            )
+            token_map_result[raw] = cat
+
+        # Merge with already-known merchants
+        cached = _get_cached_categorizations(
+            [m for m in merchants if m not in unknown_merchants],
+            db
+        )
+        token_map_result.update(cached)
+
+        return token_map_result
+    except Exception as e:
+        print(f"Bulk merchant categorization failed: {e}")
+        return _get_cached_categorizations(merchants, db)
+
+
+def _get_cached_categorizations(
+    merchants: List[str],
+    db: Session
+) -> Dict[str, Dict[str, str]]:
+    """Get categorizations from token map for known merchants."""
+    from app.models.token_map import TokenMap, TokenType
+
+    result = {}
+    for merchant in merchants:
+        normalized = merchant.strip().upper()
+        token_map = db.query(TokenMap).filter(
+            TokenMap.token_type == TokenType.merchant,
+            TokenMap.normalized_value == normalized
+        ).first()
+
+        if token_map and token_map.metadata_:
+            result[merchant] = {
+                "raw": merchant,
+                "clean": token_map.original_value,
+                "category": token_map.metadata_.get("category"),
+                "subcategory": token_map.metadata_.get("subcategory"),
+            }
+
+    return result
 
 
 def get_import_history(db: Session, limit: int = 20):

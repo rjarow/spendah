@@ -20,6 +20,7 @@ from app.ai.prompts import (
 from app.models.recurring import Frequency
 import json
 from datetime import date
+from app.services.tokenization_service import TokenizationService
 
 
 def get_or_create_settings(db: Session) -> AlertSettings:
@@ -325,8 +326,21 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
 
     # Call AI for review
     client = get_ai_client()
+    client._db = db  # Set db session for privacy settings
+
+    # Tokenize recurring data for privacy
+    tokenizer = TokenizationService(db)
+    recurring_data = json.loads(recurring_json)
+    tokenized_recurring = []
+    for r in recurring_data:
+        tokenized = dict(r)
+        if r.get("merchant_pattern"):
+            tokenized["merchant_pattern"] = tokenizer.tokenize_merchant(r["merchant_pattern"])
+        tokenized_recurring.append(tokenized)
+    recurring_json_tokenized = json.dumps(tokenized_recurring, indent=2)
+
     user_prompt = SUBSCRIPTION_REVIEW_USER.format(
-        recurring_json=recurring_json,
+        recurring_json=recurring_json_tokenized,
         activity_json=activity_json,
         last_review_date=last_review_date
     )
@@ -341,6 +355,13 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
 
         insights = result.get("insights", [])
         summary = result.get("summary", "Review complete.")
+
+        # De-tokenize AI response
+        if insights:
+            for insight in insights:
+                for key, value in insight.items():
+                    if isinstance(value, str):
+                        insight[key] = tokenizer.detokenize(value)
 
     except Exception as e:
         print(f"Subscription review AI failed: {e}")
@@ -443,8 +464,21 @@ async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
     ], indent=2)
 
     client = get_ai_client()
+    client._db = db  # Set db session for privacy settings
+
+    # Tokenize transaction data for privacy
+    tokenizer = TokenizationService(db)
+    transactions_data = json.loads(txn_json)
+    tokenized_transactions = []
+    for t in transactions_data:
+        tokenized = dict(t)
+        if t.get("merchant"):
+            tokenized["merchant"] = tokenizer.tokenize_merchant(t["merchant"])
+        tokenized_transactions.append(tokenized)
+    txn_json_tokenized = json.dumps(tokenized_transactions, indent=2)
+
     user_prompt = ANNUAL_CHARGE_DETECTION_USER.format(
-        transactions_json=txn_json,
+        transactions_json=txn_json_tokenized,
         current_date=date.today().isoformat()
     )
 
@@ -457,6 +491,12 @@ async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
         )
 
         annual_subs = result.get("annual_subscriptions", [])
+
+        # De-tokenize AI response
+        for sub in annual_subs:
+            for key, value in sub.items():
+                if isinstance(value, str):
+                    sub[key] = tokenizer.detokenize(value)
 
     except Exception as e:
         print(f"Annual charge detection failed: {e}")

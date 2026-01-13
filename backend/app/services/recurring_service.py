@@ -142,7 +142,11 @@ def calculate_next_expected(last_date: date, frequency: Frequency) -> date:
         except ValueError:
             return date(new_year, new_month, 28)
     elif frequency == Frequency.yearly:
-        return date(last_date.year + 1, last_date.month, last_date.day)
+        try:
+            return date(last_date.year + 1, last_date.month, last_date.day)
+        except ValueError:
+            # Handle leap day (Feb 29) in non-leap years
+            return date(last_date.year + 1, last_date.month, 28)
     else:
         return last_date + timedelta(days=30)
 

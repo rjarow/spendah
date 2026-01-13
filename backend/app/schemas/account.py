@@ -11,7 +11,7 @@ from app.models.account import AccountType
 class AccountBase(BaseModel):
     """Base account schema."""
     name: str = Field(..., min_length=1, max_length=100)
-    type: AccountType
+    account_type: AccountType
 
 
 class AccountCreate(AccountBase):
@@ -22,7 +22,7 @@ class AccountCreate(AccountBase):
 class AccountUpdate(BaseModel):
     """Schema for updating an account."""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    type: Optional[AccountType] = None
+    account_type: Optional[AccountType] = None
     is_active: Optional[bool] = None
 
 

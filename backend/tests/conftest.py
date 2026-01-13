@@ -1,14 +1,16 @@
 """Shared test fixtures."""
 
 import pytest
-from sqlalchemy import create_engine, inspect
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, inspect, event
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 from datetime import date
 from decimal import Decimal
 import uuid
 
-from app.database import Base, get_db
+from app.database import Base, get_db as database_get_db
+from app.dependencies import get_db as dependencies_get_db
 from app.main import app
 from app.models.account import Account, AccountType
 from app.models.category import Category
@@ -17,25 +19,29 @@ from app.models.recurring import RecurringGroup, Frequency
 from app.models.alert import Alert, AlertType, Severity, AlertSettings
 
 
-# Use in-memory SQLite for tests
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
 @pytest.fixture(scope="function")
 def db_session():
-    """Create a fresh database for each test."""
+    """Create a fresh database for each test using in-memory SQLite."""
+    # Use StaticPool to ensure all connections use the same in-memory database
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    # Create all tables
     Base.metadata.create_all(bind=engine)
+
+    # Create session
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     session = TestingSessionLocal()
+
     try:
         yield session
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+        engine.dispose()
 
 
 @pytest.fixture(scope="function")
@@ -47,7 +53,9 @@ def client(db_session):
         finally:
             pass
 
-    app.dependency_overrides[get_db] = override_get_db
+    # Override both get_db functions (some routes use app.database, others use app.dependencies)
+    app.dependency_overrides[database_get_db] = override_get_db
+    app.dependency_overrides[dependencies_get_db] = override_get_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -57,14 +65,9 @@ def client(db_session):
 def sample_account(db_session):
     """Create a sample account."""
     account = Account(id=str(uuid.uuid4()), name="Test Checking")
-    
-    # Set attributes using inspector to check what columns exist
-    inspector = inspect(Account)
-    if 'account_type' in inspector.columns:
-        account.type = AccountType.bank
-    if 'is_active' in inspector.columns:
-        account.is_active = True
-    
+    account.account_type = AccountType.bank
+    account.is_active = True
+
     db_session.add(account)
     db_session.commit()
     db_session.refresh(account)
@@ -133,7 +136,7 @@ def sample_recurring_group(db_session, sample_category):
 def alert_settings(db_session):
     """Create default alert settings."""
     settings = AlertSettings(
-        id=str(uuid.uuid4()),
+        id=str(uuid.uuid4()),  # String UUID as expected by model
         large_purchase_multiplier=Decimal("3.0"),
         unusual_merchant_threshold=Decimal("200.0"),
         alerts_enabled=True

@@ -71,6 +71,53 @@ def get_unread_count(db: Session = Depends(get_db)):
     return UnreadCountResponse(count=count)
 
 
+# Settings routes must come BEFORE /{alert_id} routes to avoid path conflicts
+@router.get("/settings", response_model=AlertSettingsResponse)
+def get_alert_settings(db: Session = Depends(get_db)):
+    """Get alert settings."""
+    settings = alerts_service.get_or_create_settings(db)
+    return AlertSettingsResponse(
+        id=str(settings.id),
+        large_purchase_threshold=float(settings.large_purchase_threshold) if settings.large_purchase_threshold else None,
+        large_purchase_multiplier=float(settings.large_purchase_multiplier),
+        unusual_merchant_threshold=float(settings.unusual_merchant_threshold),
+        subscription_review_days=int(settings.subscription_review_days) if settings.subscription_review_days else 90,
+        annual_charge_warning_days=int(settings.annual_charge_warning_days) if settings.annual_charge_warning_days else 14,
+        alerts_enabled=settings.alerts_enabled,
+        created_at=settings.created_at,
+        updated_at=settings.updated_at,
+    )
+
+
+@router.patch("/settings", response_model=AlertSettingsResponse)
+def update_alert_settings(
+    update: AlertSettingsUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update alert settings."""
+    settings = alerts_service.get_or_create_settings(db)
+
+    update_data = update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(settings, field, value)
+
+    settings.updated_at = datetime.now()
+    db.commit()
+    db.refresh(settings)
+
+    return AlertSettingsResponse(
+        id=str(settings.id),
+        large_purchase_threshold=float(settings.large_purchase_threshold) if settings.large_purchase_threshold else None,
+        large_purchase_multiplier=float(settings.large_purchase_multiplier),
+        unusual_merchant_threshold=float(settings.unusual_merchant_threshold),
+        subscription_review_days=int(settings.subscription_review_days) if settings.subscription_review_days else 90,
+        annual_charge_warning_days=int(settings.annual_charge_warning_days) if settings.annual_charge_warning_days else 14,
+        alerts_enabled=settings.alerts_enabled,
+        created_at=settings.created_at,
+        updated_at=settings.updated_at,
+    )
+
+
 @router.patch("/{alert_id}", response_model=AlertResponse)
 def update_alert(
     alert_id: str,
@@ -126,52 +173,6 @@ def delete_alert(
     db.commit()
 
     return {"deleted": True}
-
-
-@router.get("/settings", response_model=AlertSettingsResponse)
-def get_alert_settings(db: Session = Depends(get_db)):
-    """Get alert settings."""
-    settings = alerts_service.get_or_create_settings(db)
-    return AlertSettingsResponse(
-        id=str(settings.id),
-        large_purchase_threshold=float(settings.large_purchase_threshold) if settings.large_purchase_threshold else None,
-        large_purchase_multiplier=float(settings.large_purchase_multiplier),
-        unusual_merchant_threshold=float(settings.unusual_merchant_threshold),
-        subscription_review_days=int(settings.subscription_review_days) if settings.subscription_review_days else 90,
-        annual_charge_warning_days=int(settings.annual_charge_warning_days) if settings.annual_charge_warning_days else 14,
-        alerts_enabled=settings.alerts_enabled,
-        created_at=settings.created_at,
-        updated_at=settings.updated_at,
-    )
-
-
-@router.patch("/settings", response_model=AlertSettingsResponse)
-def update_alert_settings(
-    update: AlertSettingsUpdate,
-    db: Session = Depends(get_db)
-):
-    """Update alert settings."""
-    settings = alerts_service.get_or_create_settings(db)
-
-    update_data = update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(settings, field, value)
-
-    settings.updated_at = datetime.now()
-    db.commit()
-    db.refresh(settings)
-
-    return AlertSettingsResponse(
-        id=str(settings.id),
-        large_purchase_threshold=float(settings.large_purchase_threshold) if settings.large_purchase_threshold else None,
-        large_purchase_multiplier=float(settings.large_purchase_multiplier),
-        unusual_merchant_threshold=float(settings.unusual_merchant_threshold),
-        subscription_review_days=int(settings.subscription_review_days) if settings.subscription_review_days else 90,
-        annual_charge_warning_days=int(settings.annual_charge_warning_days) if settings.annual_charge_warning_days else 14,
-        alerts_enabled=settings.alerts_enabled,
-        created_at=settings.created_at,
-        updated_at=settings.updated_at,
-    )
 
 
 @router.post("/subscription-review", response_model=SubscriptionReviewResponse)

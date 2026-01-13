@@ -47,13 +47,13 @@ class TestCategoryAverage:
 
     def test_calculates_average(self, db_session, sample_category, sample_account):
         """Should calculate average of expenses."""
-        # Add some transactions
+        # Add some transactions with recent dates
         amounts = [Decimal("-50.00"), Decimal("-100.00"), Decimal("-150.00")]
         for i, amount in enumerate(amounts):
             txn = Transaction(
                 id=str(uuid.uuid4()),
                 hash=f"hash-cat-{i}",
-                date=date(2024, 1, i + 1),
+                date=date.today() - timedelta(days=i + 1),  # Recent dates
                 amount=amount,
                 raw_description=f"Test {i}",
                 category_id=sample_category.id,
@@ -222,7 +222,7 @@ class TestUpcomingRenewals:
     def test_future_renewal_excluded(self, db_session, sample_recurring_group, sample_account):
         """Should exclude renewals beyond 30 days."""
         # Set next expected date to 60 days in future
-        sample_recurring_group.next_expected_date = date.today() + datetime.timedelta(days=60)
+        sample_recurring_group.next_expected_date = date.today() + timedelta(days=60)
         db_session.commit()
 
         result = get_upcoming_renewals(db_session, days=30)
@@ -231,7 +231,7 @@ class TestUpcomingRenewals:
     def test_past_renewal_included(self, db_session, sample_recurring_group, sample_account):
         """Should include renewals within 30 days."""
         # Set next expected date to 7 days in future
-        sample_recurring_group.next_expected_date = date.today() + datetime.timedelta(days=7)
+        sample_recurring_group.next_expected_date = date.today() + timedelta(days=7)
         db_session.commit()
 
         result = get_upcoming_renewals(db_session, days=30)
@@ -268,7 +268,7 @@ class TestUpcomingRenewals:
             category_id=sample_recurring_group.category_id,
             is_active=True,
             last_seen_date=date(2024, 1, 1),
-            next_expected_date=date.today() + datetime.timedelta(days=15)
+            next_expected_date=date.today() + timedelta(days=15)
         )
         db_session.add(group2)
         db_session.commit()

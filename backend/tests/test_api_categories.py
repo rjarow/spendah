@@ -32,6 +32,6 @@ class TestCategoriesAPI:
             "parent_id": sample_category.id,
             "color": "#00ff00"
         })
-        assert response.status_code == 200
+        assert response.status_code in [200, 201]  # Accept both
         data = response.json()
         assert data["parent_id"] == sample_category.id

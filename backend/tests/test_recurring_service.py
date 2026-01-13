@@ -59,8 +59,8 @@ class TestCalculateNextExpected:
     def test_yearly_leap_day(self):
         """Yearly on Feb 29 should handle non-leap years."""
         result = calculate_next_expected(date(2024, 2, 29), Frequency.yearly)
-        # 2025 is not a leap year
-        assert result == date(2025, 2, 28) or result == date(2025, 3, 1)
+        # 2025 is not a leap year, should fall back to Feb 28
+        assert result == date(2025, 2, 28)
 
 
 class TestGroupTransactionCount:

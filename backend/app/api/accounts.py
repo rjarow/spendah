@@ -42,7 +42,7 @@ def create_account(
     """Create a new account."""
     db_account = Account(
         name=account.name,
-        type=account.type
+        account_type=account.account_type
     )
     db.add(db_account)
     db.commit()
@@ -76,8 +76,8 @@ def update_account(
     # Update fields if provided
     if account_update.name is not None:
         account.name = account_update.name
-    if account_update.type is not None:
-        account.type = account_update.type
+    if account_update.account_type is not None:
+        account.account_type = account_update.account_type
     if account_update.is_active is not None:
         account.is_active = account_update.is_active
 

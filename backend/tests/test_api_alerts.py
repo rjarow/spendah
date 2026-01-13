@@ -2,8 +2,11 @@
 
 import pytest
 import uuid
+from datetime import date
+from decimal import Decimal
 
 from app.models.alert import Alert, AlertType, Severity
+from app.models.transaction import Transaction
 
 
 class TestAlertsAPI:

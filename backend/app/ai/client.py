@@ -1,9 +1,12 @@
+import logging
 import litellm
 from typing import Optional, Dict, Any, List
 import json
 from sqlalchemy.orm import Session
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 litellm.drop_params = True
 
@@ -84,7 +87,7 @@ class AIClient:
             response = await litellm.acompletion(**kwargs)
             return response.choices[0].message.content
         except Exception as e:
-            print(f"AI completion error: {e}")
+            logger.error(f"AI completion error: {e}")
             raise
         finally:
             if env_key:

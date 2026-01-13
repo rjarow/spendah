@@ -55,21 +55,6 @@ async def confirm_import(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{import_id}/confirm", response_model=ImportStatusResponse)
-def confirm_import(
-    import_id: str,
-    request: ImportConfirmRequest,
-    db: Session = Depends(get_db)
-):
-    """Confirm and process an import"""
-    try:
-        return import_service.process_import(db, import_id, request)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/{import_id}/status", response_model=ImportStatusResponse)
 def get_import_status(
     import_id: str,

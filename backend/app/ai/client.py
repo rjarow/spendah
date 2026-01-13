@@ -1,8 +1,12 @@
+import logging
 import litellm
 from typing import Optional, Dict, Any, List
 import json
+from sqlalchemy.orm import Session
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 litellm.drop_params = True
 
@@ -12,6 +16,7 @@ class AIClient:
         self.provider = settings.ai_provider
         self.model = self._get_model_string()
         self._configure_provider()
+        self._db: Optional[Session] = None
 
     def _get_model_string(self) -> str:
         model = settings.ai_model
@@ -82,7 +87,7 @@ class AIClient:
             response = await litellm.acompletion(**kwargs)
             return response.choices[0].message.content
         except Exception as e:
-            print(f"AI completion error: {e}")
+            logger.error(f"AI completion error: {e}")
             raise
         finally:
             if env_key:
@@ -117,6 +122,36 @@ class AIClient:
             cleaned = cleaned[:-3]
 
         return json.loads(cleaned.strip())
+
+    def should_obfuscate(self, provider: Optional[str] = None) -> bool:
+        """
+        Check if obfuscation is enabled for the current/specified provider.
+
+        Requires database session to check privacy settings.
+        """
+        if self._db is None:
+            return False
+
+        from app.models.privacy_settings import get_or_create_privacy_settings
+        privacy_settings = get_or_create_privacy_settings(self._db)
+
+        if not privacy_settings.obfuscation_enabled:
+            return False
+
+        provider = provider or self.provider
+
+        if provider == "ollama":
+            return privacy_settings.ollama_obfuscation
+        elif provider == "openrouter":
+            return privacy_settings.openrouter_obfuscation
+        elif provider == "anthropic":
+            return privacy_settings.anthropic_obfuscation
+        elif provider == "openai":
+            return privacy_settings.openai_obfuscation
+
+        # Default to obfuscating unknown providers
+        return True
+
 
 _ai_client: Optional[AIClient] = None
 

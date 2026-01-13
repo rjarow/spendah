@@ -3,7 +3,7 @@ Main API router.
 """
 
 from fastapi import APIRouter
-from app.api import accounts, categories, imports, transactions, settings, dashboard, alerts
+from app.api import accounts, categories, imports, transactions, settings, dashboard, alerts, privacy
 
 api_router = APIRouter()
 
@@ -14,3 +14,4 @@ api_router.include_router(transactions.router)
 api_router.include_router(settings.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(alerts.router)
+api_router.include_router(privacy.router)

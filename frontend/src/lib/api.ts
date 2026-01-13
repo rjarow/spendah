@@ -23,6 +23,9 @@ import type {
   RecentTransaction,
   RecurringGroup,
   DetectionResponse,
+  PrivacySettings,
+  ProviderPrivacyConfig,
+  TokenStats,
 } from '@/types'
 
 const API_BASE = `${window.location.protocol}//${window.location.hostname}:8000/api/v1`
@@ -393,6 +396,28 @@ export async function getUpcomingRenewals(days: number = 30) {
 export async function detectAnnualCharges() {
   const response = await api.post('/alerts/detect-annual')
   return response.data
+}
+
+// Privacy API
+export const privacyApi = {
+  getSettings: async (): Promise<PrivacySettings> =>
+    fetch(`${API_BASE}/privacy/settings`).then(r => r.json()),
+
+  updateSettings: async (settings: Partial<{
+    obfuscation_enabled?: boolean
+    provider_settings?: ProviderPrivacyConfig[]
+  }>): Promise<PrivacySettings> =>
+    fetch(`${API_BASE}/privacy/settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    }).then(r => r.json()),
+
+  preview: async (text: string): Promise<{ original: string; tokenized: string }> =>
+    fetch(`${API_BASE}/privacy/preview?text=${encodeURIComponent(text)}`).then(r => r.json()),
+
+  getStats: async (): Promise<TokenStats> =>
+    fetch(`${API_BASE}/privacy/stats`).then(r => r.json()),
 }
 
 export default api

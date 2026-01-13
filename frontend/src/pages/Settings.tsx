@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSettings, updateAISettings, testAIConnection } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { PrivacySettingsPanel } from '@/components/settings/PrivacySettings'
 
 export default function Settings() {
   const queryClient = useQueryClient()
@@ -131,6 +132,8 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      <PrivacySettingsPanel />
 
       <div className="bg-yellow-50 border border-yellow-200 rounded p-4 text-sm">
         <p className="font-medium text-yellow-800">API Key Configuration</p>

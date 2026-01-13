@@ -32,6 +32,10 @@ FROM node:20-alpine as frontend-build
 
 WORKDIR /app
 
+# Accept build args for Vite environment variables
+ARG VITE_API_PORT=8000
+ENV VITE_API_PORT=$VITE_API_PORT
+
 # Copy package files
 COPY frontend/package*.json ./
 
@@ -41,7 +45,7 @@ RUN npm install
 # Copy frontend source
 COPY frontend/ .
 
-# Build the frontend
+# Build the frontend (Vite reads VITE_* env vars at build time)
 RUN npm run build
 
 

@@ -1,7 +1,7 @@
 # Spendah Project Handoff
 
 > Last updated: January 13, 2026
-> Status: Phase 7 complete, test fixes needed before dogfooding
+> Status: Phase 7 complete, ready for dogfooding
 > Repo: https://github.com/rjarow/spendah
 
 ## What is Spendah?
@@ -14,7 +14,7 @@ Local-first personal finance tracker with AI-powered categorization. Built for R
 - **Frontend:** React 18, TypeScript, Vite, Tailwind, shadcn/ui, TanStack Query
 - **AI:** LiteLLM with OpenRouter (Claude Haiku) - can also use Ollama, Anthropic, OpenAI
 - **Infrastructure:** Docker Compose, runs on Proxmox VM
-- **Testing:** pytest with 60 service layer tests (some failing - see below)
+- **Testing:** pytest with 87 passing tests
 
 ## Project Location
 
@@ -37,30 +37,9 @@ Repo: https://github.com/rjarow/spendah
 | Phase 5b | Alerts System | ✅ Complete |
 | Phase 6 | Subscription Intelligence | ✅ Complete |
 | Phase 7 | Privacy & Tokenization | ✅ Complete |
-| Test Fixes | Pre-existing test failures | 🔄 Next |
-| Dogfooding | Test with real bank data | ⏳ After test fixes |
+| Test Fixes | Pre-existing test failures | ✅ Complete |
+| Dogfooding | Test with real bank data | 🔄 Next |
 | Phase 8 | Coach Foundation | ⏳ After dogfooding |
-
-### Pre-Existing Test Failures (Must Fix Before Dogfooding)
-
-These issues existed before Phase 7 and need to be fixed:
-
-1. **`backend/tests/conftest.py` line ~47**: `sample_account` fixture sets `account.type` but column is `account_type`
-   - Fix: Change to `account.account_type = AccountType.bank`
-
-2. **`backend/tests/test_api_accounts.py`**: `test_create_account` sends `AccountType.bank` enum in JSON
-   - Fix: Should be string `"bank"` not enum
-
-3. **`backend/tests/test_api_alerts.py`**: Missing imports
-   - Fix: Add `from datetime import date`, `from decimal import Decimal`, `from app.models.transaction import Transaction`
-
-4. **`backend/app/services/recurring_service.py` line ~77**: `calculate_next_expected` yearly case crashes on Feb 29 → non-leap year
-   - Fix: Wrap `date(last_date.year + 1, last_date.month, last_date.day)` in try/except with fallback to `date(last_date.year + 1, last_date.month, 28)`
-
-5. **`backend/tests/test_recurring_service.py`**: `test_yearly_leap_day` accepts either Feb 28 OR Mar 1 (indeterminate)
-   - Fix: Should assert only `date(2025, 2, 28)`
-
-**After fixes, run:** `docker compose exec api pytest -v --tb=short` - should see 60+ tests pass.
 
 ### What's Working
 
@@ -75,13 +54,13 @@ These issues existed before Phase 7 and need to be fixed:
 - Recurring: List, create, update, delete, AI-powered detection
 - Alerts: List, update, dismiss, delete, settings, unread count
 - Subscription Review: AI-powered analysis, upcoming renewals, annual charge detection
-- **Privacy: Token management, per-provider obfuscation settings, preview**
+- Privacy: Token management, per-provider obfuscation settings, preview
 
 **Frontend Pages:**
 - Dashboard: Month selector, summary cards, category breakdown, trends chart, upcoming renewals widget
 - Transactions: Search, filters, inline category editing, bulk operations
 - Import: File drop, AI format detection, column mapping
-- Settings: AI provider/model selection, feature toggles, **privacy settings panel**
+- Settings: AI provider/model selection, feature toggles, privacy settings panel
 - Recurring: Detection trigger, group management, summary stats
 - Accounts: Basic list and create
 - Insights: Alert list, settings panel, dismiss/delete actions, subscription review button
@@ -96,7 +75,7 @@ These issues existed before Phase 7 and need to be fixed:
 - Anomaly detection (large purchases, unusual merchants, price increases)
 - Subscription review with usage analysis
 - Annual charge detection and prediction
-- **Tokenization: Merchant/account/person tokens, date shifting, per-provider settings**
+- Tokenization: Merchant/account/person tokens, date shifting, per-provider settings
 
 ### Database Tables
 
@@ -127,7 +106,7 @@ spendah/
 │   │   │   ├── dashboard.py
 │   │   │   ├── settings.py
 │   │   │   ├── recurring.py
-│   │   │   ├── alerts.py           # Includes subscription review endpoints
+│   │   │   ├── alerts.py           # Note: /settings route before /{alert_id}
 │   │   │   └── privacy.py          # Token stats, preview, settings
 │   │   ├── models/
 │   │   │   ├── account.py          # Uses account_type (not type)
@@ -137,19 +116,19 @@ spendah/
 │   │   │   └── privacy.py          # Privacy settings schemas
 │   │   ├── services/
 │   │   │   ├── import_service.py
-│   │   │   ├── recurring_service.py
+│   │   │   ├── recurring_service.py  # Has leap year handling for yearly calc
 │   │   │   ├── alerts_service.py   # Includes subscription review logic
 │   │   │   └── tokenization_service.py  # PII tokenization
 │   │   ├── config.py
 │   │   ├── database.py
 │   │   └── main.py
 │   ├── tests/
-│   │   ├── conftest.py             # Shared fixtures (has bug - see above)
-│   │   ├── test_deduplication.py   # 10 tests
-│   │   ├── test_recurring_service.py  # 13 tests (has bug - see above)
-│   │   ├── test_alerts_service.py  # 20 tests
-│   │   ├── test_tokenization.py    # 17 tests (Phase 7)
-│   │   └── test_api_*.py           # API tests (need fixes - see above)
+│   │   ├── conftest.py             # Uses StaticPool for test isolation
+│   │   ├── test_deduplication.py
+│   │   ├── test_recurring_service.py
+│   │   ├── test_alerts_service.py
+│   │   ├── test_tokenization.py
+│   │   └── test_api_*.py
 │   ├── pytest.ini
 │   └── alembic/
 ├── frontend/
@@ -168,7 +147,7 @@ spendah/
 │       │   │   ├── AlertBell.tsx
 │       │   │   └── SubscriptionReviewModal.tsx
 │       │   └── settings/
-│       │       └── PrivacySettings.tsx  # Phase 7
+│       │       └── PrivacySettings.tsx
 │       ├── lib/
 │       │   ├── api.ts              # Includes privacy API functions
 │       │   └── formatters.ts
@@ -220,31 +199,45 @@ Use `Severity` not `AlertSeverity`:
 from app.models.alert import Alert, AlertType, Severity
 ```
 
-### 4. OpenRouter API Key
+### 4. Alerts API Route Ordering
+
+In `alerts.py`, the `/settings` route must come BEFORE `/{alert_id}` or FastAPI will try to parse "settings" as an alert ID:
+```python
+@router.get("/settings")  # This first
+def get_alert_settings(): ...
+
+@router.get("/{alert_id}")  # This after
+def get_alert(): ...
+```
+
+### 5. OpenRouter API Key
 
 LiteLLM expects `OPENROUTER_API_KEY`:
 ```python
 os.environ["OPENROUTER_API_KEY"] = key  # NOT OPENAI_API_KEY
 ```
 
-### 5. Test Data Date Range
+### 6. Test Isolation with SQLite
+
+Tests use `StaticPool` for proper isolation:
+```python
+# conftest.py
+engine = create_engine(
+    "sqlite:///:memory:",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+```
+
+### 7. Leap Year Handling
+
+`recurring_service.py` handles Feb 29 → non-leap year by falling back to Feb 28.
+
+### 8. Test Data Date Range
 
 Test data is from Jan-June 2024. Recurring detection lookback is 3 years in `recurring_service.py`.
 
-### 6. Running Tests
-
-```bash
-# Run all tests
-docker compose exec api pytest -v --tb=short
-
-# Run specific test file
-docker compose exec api pytest tests/test_deduplication.py -v
-
-# Run with coverage (if installed)
-docker compose exec api pytest --cov=app --cov-report=term-missing
-```
-
-### 7. Always Restart After Code Changes
+### 9. Always Restart After Code Changes
 
 ```bash
 cd ~/projects/spendah
@@ -297,10 +290,8 @@ PRIVACY_OPENROUTER_OBFUSCATION=true
 
 ## Next Steps
 
-1. **Fix pre-existing test failures** (see list above)
-2. **Run full test suite** - verify 60+ tests pass
-3. **Dogfood with real bank data** - identify friction points
-4. **Phase 8: Coach Foundation** - see `spendah-phase8-prompt.md`
+1. **Dogfood with real bank data** - identify friction points
+2. **Phase 8: Coach Foundation** - see `spendah-phase8-prompt.md`
 
 ## Development Workflow
 

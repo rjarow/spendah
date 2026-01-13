@@ -2,70 +2,71 @@
 
 ## Overview
 
-This phase adds the foundation for an AI coach that can have conversations about the user's finances. The coach has read access to all financial data (tokenized for cloud AI) and can answer questions, provide insights, and remember past conversations.
+This phase adds the foundational AI coach infrastructure - conversation storage, chat API, and basic UI components. The coach will be able to answer questions about the user's financial data using tokenized context.
 
 **Key Concepts:**
-- Conversations stored tokenized for privacy
-- Context assembly from financial data before each AI call
-- Streaming responses for better UX
-- Embedded widget on dashboard + drawer accessible from any page
+- Conversations persist across sessions
+- All stored messages are tokenized (cloud-safe)
+- Context assembly pulls relevant financial data for each query
+- UI: embedded widget + slide-out drawer
 
 ## Progress Tracker
 
 Update this as you complete each step:
 
-- [ ] Step 1: Create Coach Models
-- [ ] Step 2: Create Coach Schemas
-- [ ] Step 3: Create Coach Service
-- [ ] Step 4: Create Coach Prompts
-- [ ] Step 5: Create Coach API Endpoints
-- [ ] Step 6: Add Coach Types to Frontend
-- [ ] Step 7: Create Coach API Functions
-- [ ] Step 8: Create Chat Message Component
-- [ ] Step 9: Create Coach Widget (Dashboard)
-- [ ] Step 10: Create Coach Drawer (Global)
-- [ ] Step 11: Integrate Coach into Layout
-- [ ] Step 12: Add Tests
-- [ ] Step 13: Final Testing & Verification
+- [ ] Step 1: Create Conversation Models
+- [ ] Step 2: Create Alembic Migration
+- [ ] Step 3: Create Coach Schemas
+- [ ] Step 4: Create Coach Service
+- [ ] Step 5: Create Coach Prompts
+- [ ] Step 6: Create Coach API Endpoints
+- [ ] Step 7: Add Frontend Types
+- [ ] Step 8: Add Frontend API Functions
+- [ ] Step 9: Create ChatMessage Component
+- [ ] Step 10: Create CoachInput Component
+- [ ] Step 11: Create CoachWidget Component
+- [ ] Step 12: Create CoachDrawer Component
+- [ ] Step 13: Integrate into Layout
+- [ ] Step 14: Add Tests
 
 ## Files to Create/Modify
 
 **CREATE:**
-- `backend/app/models/coach.py`
+- `backend/app/models/conversation.py`
 - `backend/app/schemas/coach.py`
 - `backend/app/services/coach_service.py`
 - `backend/app/ai/prompts/coach.py`
 - `backend/app/api/coach.py`
 - `backend/tests/test_coach_service.py`
 - `frontend/src/components/coach/ChatMessage.tsx`
+- `frontend/src/components/coach/CoachInput.tsx`
 - `frontend/src/components/coach/CoachWidget.tsx`
 - `frontend/src/components/coach/CoachDrawer.tsx`
-- `frontend/src/components/coach/CoachInput.tsx`
-- `frontend/src/hooks/useCoach.ts`
 
 **MODIFY:**
 - `backend/app/models/__init__.py` - Export new models
 - `backend/app/api/router.py` - Add coach router
 - `frontend/src/lib/api.ts` - Add coach API functions
 - `frontend/src/types/index.ts` - Add coach types
+- `frontend/src/components/layout/Layout.tsx` - Add coach drawer
 - `frontend/src/pages/Dashboard.tsx` - Add coach widget
-- `frontend/src/components/layout/Layout.tsx` - Add coach drawer trigger
 
 ---
 
 ## IMPORTANT: Read First
 
 Before writing ANY code, read these files:
-1. `HANDOFF.md` - Current project state
-2. `spendah-spec.md` - Architecture with coach details (search for "Coach")
+1. `HANDOFF.md` - Current project state, known gotchas
+2. `backend/app/services/tokenization_service.py` - How tokenization works
 
 ## Known Gotchas (from previous phases)
 
 1. **Account model uses `account_type`** not `type`
 2. **Alert model uses `Severity`** not `AlertSeverity`
-3. **OpenRouter uses `OPENROUTER_API_KEY`** not `OPENAI_API_KEY`
-4. **Dynamic API URL** - use `${window.location.hostname}` not hardcoded localhost
-5. **Always restart after changes:**
+3. **Alerts API: `/settings` route before `/{alert_id}`**
+4. **OpenRouter uses `OPENROUTER_API_KEY`** not `OPENAI_API_KEY`
+5. **Test isolation: Use `StaticPool`** in conftest.py
+6. **Always restart after changes:**
    ```bash
    docker compose down
    docker compose up -d --build
@@ -73,18 +74,20 @@ Before writing ANY code, read these files:
 
 ---
 
-## Step 1: Create Coach Models
+## Step 1: Create Conversation Models
 
-Create `backend/app/models/coach.py`:
+Create `backend/app/models/conversation.py`:
 
 ```python
 """Models for coach conversations."""
 
-from sqlalchemy import Column, String, Text, DateTime, Boolean, Enum as SQLEnum, ForeignKey
+import uuid
+from datetime import datetime
+from enum import Enum
+
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum as SQLEnum, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from enum import Enum
-import uuid
 
 from app.database import Base
 
@@ -94,20 +97,19 @@ def generate_uuid():
 
 
 class MessageRole(str, Enum):
-    """Who sent the message."""
+    """Role of message sender."""
     user = "user"
     assistant = "assistant"
 
 
 class Conversation(Base):
     """A coach conversation session."""
-    __tablename__ = "coach_conversations"
+    __tablename__ = "conversations"
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    title = Column(String(200), nullable=True)  # Auto-generated from first message
-    summary = Column(Text, nullable=True)  # AI-generated summary for context
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     last_message_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    summary = Column(Text, nullable=True)  # AI-generated summary for context
     is_archived = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -117,12 +119,12 @@ class Conversation(Base):
 
 class Message(Base):
     """A single message in a conversation."""
-    __tablename__ = "coach_messages"
+    __tablename__ = "messages"
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    conversation_id = Column(String(36), ForeignKey("coach_conversations.id"), nullable=False)
+    conversation_id = Column(String(36), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
     role = Column(SQLEnum(MessageRole), nullable=False)
-    content = Column(Text, nullable=False)  # Stored tokenized for privacy
+    content = Column(Text, nullable=False)  # Stored tokenized for cloud safety
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
@@ -132,44 +134,54 @@ class Message(Base):
 Update `backend/app/models/__init__.py`:
 
 ```python
-from app.models.coach import Conversation, Message, MessageRole
-```
-
-Create Alembic migration:
-```bash
-docker compose exec api alembic revision --autogenerate -m "add coach conversation tables"
-docker compose exec api alembic upgrade head
+from app.models.conversation import Conversation, Message, MessageRole
 ```
 
 **Verify:**
 ```bash
-docker compose exec api python -c "from app.models.coach import Conversation, Message; print('Models loaded')"
+docker compose exec api python -c "from app.models.conversation import Conversation, Message, MessageRole; print('Models loaded')"
 ```
 
 ---
 
-## Step 2: Create Coach Schemas
+## Step 2: Create Alembic Migration
+
+```bash
+docker compose exec api alembic revision --autogenerate -m "add conversation tables"
+docker compose exec api alembic upgrade head
+```
+
+**Verify tables exist:**
+```bash
+docker compose exec api python -c "
+from app.database import engine
+from sqlalchemy import inspect
+insp = inspect(engine)
+print('conversations' in insp.get_table_names())
+print('messages' in insp.get_table_names())
+"
+```
+
+---
+
+## Step 3: Create Coach Schemas
 
 Create `backend/app/schemas/coach.py`:
 
 ```python
 """Schemas for coach API."""
 
-from pydantic import BaseModel, Field
-from typing import Optional, List
 from datetime import datetime
-from enum import Enum
+from typing import Optional, List
+from pydantic import BaseModel
 
-
-class MessageRole(str, Enum):
-    user = "user"
-    assistant = "assistant"
+from app.models.conversation import MessageRole
 
 
 class MessageCreate(BaseModel):
-    """Send a message to the coach."""
-    content: str = Field(..., min_length=1, max_length=4000)
-    conversation_id: Optional[str] = None  # None = start new conversation
+    """Input for sending a message."""
+    message: str
+    conversation_id: Optional[str] = None
 
 
 class MessageResponse(BaseModel):
@@ -183,13 +195,20 @@ class MessageResponse(BaseModel):
         from_attributes = True
 
 
+class ChatResponse(BaseModel):
+    """Response from chat endpoint."""
+    response: str
+    conversation_id: str
+    message_id: str
+
+
 class ConversationSummary(BaseModel):
-    """Summary for conversation list."""
+    """Summary of a conversation for listing."""
     id: str
-    title: Optional[str]
+    summary: Optional[str]
     last_message_at: datetime
     message_count: int
-    preview: str  # First ~100 chars of last message
+    is_archived: bool
     
     class Config:
         from_attributes = True
@@ -198,7 +217,6 @@ class ConversationSummary(BaseModel):
 class ConversationDetail(BaseModel):
     """Full conversation with messages."""
     id: str
-    title: Optional[str]
     summary: Optional[str]
     started_at: datetime
     last_message_at: datetime
@@ -209,35 +227,28 @@ class ConversationDetail(BaseModel):
         from_attributes = True
 
 
-class ChatResponse(BaseModel):
-    """Response from sending a chat message."""
-    conversation_id: str
-    message: MessageResponse
-    
-
 class ConversationList(BaseModel):
     """Paginated list of conversations."""
     items: List[ConversationSummary]
     total: int
-    has_more: bool
 ```
 
 ---
 
-## Step 3: Create Coach Service
+## Step 4: Create Coach Service
 
 Create `backend/app/services/coach_service.py`:
 
 ```python
-"""Service for coach conversations and AI interaction."""
+"""Service for AI coach functionality."""
 
-from typing import Optional, List, Dict, Any
-from datetime import datetime, date, timedelta
-from decimal import Decimal
+import json
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import func, desc
 
-from app.models.coach import Conversation, Message, MessageRole
+from app.models.conversation import Conversation, Message, MessageRole
 from app.models.transaction import Transaction
 from app.models.category import Category
 from app.models.recurring import RecurringGroup
@@ -255,6 +266,7 @@ class CoachService:
         self.db = db
         self.settings = get_settings()
         self._tokenizer: Optional[TokenizationService] = None
+        self._ai_client: Optional[AIClient] = None
     
     @property
     def tokenizer(self) -> TokenizationService:
@@ -262,15 +274,21 @@ class CoachService:
             self._tokenizer = TokenizationService(self.db)
         return self._tokenizer
     
+    @property
+    def ai_client(self) -> AIClient:
+        if self._ai_client is None:
+            self._ai_client = AIClient(self.db)
+        return self._ai_client
+    
     async def chat(
         self,
-        content: str,
+        message: str,
         conversation_id: Optional[str] = None
-    ) -> tuple[Conversation, Message]:
+    ) -> Tuple[str, str, str]:
         """
-        Send a message to the coach and get a response.
+        Process a chat message and return AI response.
         
-        Returns: (conversation, assistant_message)
+        Returns: (response_text, conversation_id, message_id)
         """
         # Get or create conversation
         if conversation_id:
@@ -278,63 +296,178 @@ class CoachService:
                 Conversation.id == conversation_id
             ).first()
             if not conversation:
-                raise ValueError(f"Conversation {conversation_id} not found")
+                conversation = self._create_conversation()
         else:
-            conversation = Conversation()
-            self.db.add(conversation)
-            self.db.flush()
+            conversation = self._create_conversation()
         
-        # Tokenize user message before storing
-        tokenized_content = self._tokenize_message(content)
-        
-        # Save user message
-        user_message = Message(
+        # Store user message (tokenized)
+        tokenized_message = self.tokenizer.tokenize_text(message)
+        user_msg = Message(
             conversation_id=conversation.id,
             role=MessageRole.user,
-            content=tokenized_content
+            content=tokenized_message
         )
-        self.db.add(user_message)
+        self.db.add(user_msg)
+        self.db.commit()
         
-        # Build context and get AI response
-        context = self._build_financial_context()
-        history = self._get_conversation_history(conversation.id)
+        # Build context
+        context = self._build_context()
+        conversation_history = self._get_conversation_history(conversation.id)
         
-        ai_response = await self._get_ai_response(
-            user_message=content,  # Send original for better AI understanding
+        # Build prompt
+        prompt = build_coach_prompt(
+            user_message=message,  # Use original for AI
             context=context,
-            history=history
+            history=conversation_history
         )
         
-        # Tokenize AI response before storing (in case it mentions specific merchants)
-        tokenized_response = self._tokenize_message(ai_response)
+        # Get AI response
+        response = await self.ai_client.complete(
+            prompt=prompt,
+            system=COACH_SYSTEM_PROMPT
+        )
         
-        # Save assistant message
-        assistant_message = Message(
+        # De-tokenize response for storage (it may contain tokens from context)
+        # Actually, store tokenized and de-tokenize on retrieval
+        tokenized_response = response  # AI response won't have raw PII
+        
+        # Store assistant message
+        assistant_msg = Message(
             conversation_id=conversation.id,
             role=MessageRole.assistant,
             content=tokenized_response
         )
-        self.db.add(assistant_message)
+        self.db.add(assistant_msg)
         
-        # Update conversation title if first message
-        if not conversation.title:
-            conversation.title = self._generate_title(content)
-        
+        # Update conversation timestamp
         conversation.last_message_at = datetime.utcnow()
         self.db.commit()
         
-        # Detokenize for response to user
-        assistant_message.content = self.tokenizer.detokenize(assistant_message.content)
+        # De-tokenize response for user
+        display_response = self.tokenizer.detokenize(response)
         
-        return conversation, assistant_message
+        return display_response, conversation.id, assistant_msg.id
+    
+    def _create_conversation(self) -> Conversation:
+        """Create a new conversation."""
+        conversation = Conversation()
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        return conversation
+    
+    def _get_conversation_history(
+        self,
+        conversation_id: str,
+        limit: int = 10
+    ) -> List[Dict[str, str]]:
+        """Get recent messages for context."""
+        messages = self.db.query(Message).filter(
+            Message.conversation_id == conversation_id
+        ).order_by(desc(Message.created_at)).limit(limit).all()
+        
+        # Reverse to get chronological order, skip the just-added user message
+        messages = list(reversed(messages))[:-1] if messages else []
+        
+        return [
+            {"role": m.role.value, "content": m.content}
+            for m in messages
+        ]
+    
+    def _build_context(self) -> Dict[str, Any]:
+        """
+        Build financial context for the coach.
+        
+        Assembles relevant data, tokenized for cloud safety.
+        """
+        context = {}
+        
+        # Recent transactions (last 30 days)
+        thirty_days_ago = datetime.utcnow().date() - timedelta(days=30)
+        recent_txns = self.db.query(Transaction).filter(
+            Transaction.date >= thirty_days_ago
+        ).order_by(desc(Transaction.date)).limit(50).all()
+        
+        context["recent_transactions"] = [
+            self.tokenizer.tokenize_transaction_for_ai({
+                "merchant": t.clean_merchant or t.raw_description,
+                "amount": float(t.amount),
+                "date": t.date.isoformat(),
+                "category_name": t.category.name if t.category else None
+            })
+            for t in recent_txns
+        ]
+        
+        # Spending by category (current month)
+        first_of_month = datetime.utcnow().date().replace(day=1)
+        category_spending = self.db.query(
+            Category.name,
+            func.sum(Transaction.amount).label("total")
+        ).join(Transaction).filter(
+            Transaction.date >= first_of_month,
+            Transaction.amount < 0  # Expenses only
+        ).group_by(Category.name).all()
+        
+        context["category_spending"] = [
+            {"category": name, "total": abs(float(total))}
+            for name, total in category_spending
+        ]
+        
+        # Active recurring charges
+        recurring = self.db.query(RecurringGroup).filter(
+            RecurringGroup.is_active == True
+        ).all()
+        
+        context["recurring_charges"] = [
+            {
+                "name": self.tokenizer.tokenize_merchant(r.name),
+                "amount": float(r.expected_amount) if r.expected_amount else None,
+                "frequency": r.frequency.value if r.frequency else None
+            }
+            for r in recurring
+        ]
+        
+        # Unread alerts
+        unread_alerts = self.db.query(Alert).filter(
+            Alert.is_read == False,
+            Alert.is_dismissed == False
+        ).limit(5).all()
+        
+        context["unread_alerts"] = [
+            {
+                "type": a.type.value,
+                "title": a.title,
+                "severity": a.severity.value
+            }
+            for a in unread_alerts
+        ]
+        
+        # Summary stats
+        total_income = self.db.query(func.sum(Transaction.amount)).filter(
+            Transaction.date >= first_of_month,
+            Transaction.amount > 0
+        ).scalar() or 0
+        
+        total_expenses = self.db.query(func.sum(Transaction.amount)).filter(
+            Transaction.date >= first_of_month,
+            Transaction.amount < 0
+        ).scalar() or 0
+        
+        context["month_summary"] = {
+            "income": float(total_income),
+            "expenses": abs(float(total_expenses)),
+            "net": float(total_income) + float(total_expenses)
+        }
+        
+        return context
     
     def get_conversations(
         self,
         limit: int = 20,
         offset: int = 0,
         include_archived: bool = False
-    ) -> tuple[List[Conversation], int]:
-        """Get list of conversations with pagination."""
+    ) -> Tuple[List[Conversation], int]:
+        """Get paginated list of conversations."""
         query = self.db.query(Conversation)
         
         if not include_archived:
@@ -346,23 +479,29 @@ class CoachService:
             desc(Conversation.last_message_at)
         ).offset(offset).limit(limit).all()
         
+        # Add message counts
+        for conv in conversations:
+            conv.message_count = self.db.query(Message).filter(
+                Message.conversation_id == conv.id
+            ).count()
+        
         return conversations, total
     
     def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
-        """Get a conversation with all messages."""
+        """Get a single conversation with messages."""
         conversation = self.db.query(Conversation).filter(
             Conversation.id == conversation_id
         ).first()
         
         if conversation:
-            # Detokenize all messages for display
+            # De-tokenize messages for display
             for msg in conversation.messages:
                 msg.content = self.tokenizer.detokenize(msg.content)
         
         return conversation
     
     def delete_conversation(self, conversation_id: str) -> bool:
-        """Delete a conversation."""
+        """Delete a conversation and its messages."""
         conversation = self.db.query(Conversation).filter(
             Conversation.id == conversation_id
         ).first()
@@ -374,178 +513,55 @@ class CoachService:
         self.db.commit()
         return True
     
-    def archive_conversation(self, conversation_id: str) -> Optional[Conversation]:
+    def archive_conversation(self, conversation_id: str) -> bool:
         """Archive a conversation."""
         conversation = self.db.query(Conversation).filter(
             Conversation.id == conversation_id
         ).first()
         
-        if conversation:
-            conversation.is_archived = True
-            self.db.commit()
+        if not conversation:
+            return False
         
-        return conversation
-    
-    def _tokenize_message(self, content: str) -> str:
-        """Tokenize PII in a message."""
-        if not self.settings.privacy_obfuscation_enabled:
-            return content
-        
-        # Tokenize any merchant names that appear in the message
-        # This is a simple approach - could be enhanced with NER
-        return self.tokenizer.tokenize_description(content)
-    
-    def _build_financial_context(self) -> Dict[str, Any]:
-        """Build context from user's financial data for the AI."""
-        today = date.today()
-        month_start = today.replace(day=1)
-        last_month_start = (month_start - timedelta(days=1)).replace(day=1)
-        
-        # Current month spending by category
-        current_spending = self._get_spending_by_category(month_start, today)
-        
-        # Last month spending for comparison
-        last_spending = self._get_spending_by_category(last_month_start, month_start - timedelta(days=1))
-        
-        # Recent transactions (last 10)
-        recent_txns = self.db.query(Transaction).order_by(
-            desc(Transaction.date)
-        ).limit(10).all()
-        
-        # Active recurring charges
-        recurring = self.db.query(RecurringGroup).filter(
-            RecurringGroup.is_active == True
-        ).all()
-        
-        # Unread alerts
-        alerts = self.db.query(Alert).filter(
-            Alert.is_read == False,
-            Alert.is_dismissed == False
-        ).order_by(desc(Alert.created_at)).limit(5).all()
-        
-        # Tokenize all the data
-        context = {
-            "current_month": month_start.strftime("%B %Y"),
-            "spending_this_month": self._tokenize_spending(current_spending),
-            "spending_last_month": self._tokenize_spending(last_spending),
-            "recent_transactions": [
-                self.tokenizer.tokenize_transaction_for_ai({
-                    "merchant": t.clean_merchant,
-                    "amount": float(t.amount),
-                    "date": t.date,
-                    "category_name": t.category.name if t.category else None
-                })
-                for t in recent_txns
-            ],
-            "recurring_charges": [
-                {
-                    "name": self.tokenizer.tokenize_merchant(r.name),
-                    "amount": float(r.expected_amount) if r.expected_amount else None,
-                    "frequency": r.frequency.value if r.frequency else "monthly"
-                }
-                for r in recurring
-            ],
-            "pending_alerts": len(alerts),
-            "total_monthly_recurring": sum(
-                float(r.expected_amount or 0) for r in recurring
-                if r.frequency and r.frequency.value == "monthly"
-            )
-        }
-        
-        return context
-    
-    def _get_spending_by_category(self, start: date, end: date) -> Dict[str, Decimal]:
-        """Get spending totals by category for a date range."""
-        results = self.db.query(
-            Category.name,
-            func.sum(Transaction.amount).label('total')
-        ).join(
-            Transaction, Transaction.category_id == Category.id
-        ).filter(
-            Transaction.date >= start,
-            Transaction.date <= end,
-            Transaction.amount < 0  # Expenses only
-        ).group_by(Category.name).all()
-        
-        return {name: abs(total) for name, total in results}
-    
-    def _tokenize_spending(self, spending: Dict[str, Decimal]) -> Dict[str, float]:
-        """Convert spending dict to serializable format."""
-        return {cat: float(amount) for cat, amount in spending.items()}
-    
-    def _get_conversation_history(self, conversation_id: str) -> List[Dict[str, str]]:
-        """Get recent message history for context."""
-        messages = self.db.query(Message).filter(
-            Message.conversation_id == conversation_id
-        ).order_by(Message.created_at).all()
-        
-        # Return last 10 messages for context
-        return [
-            {"role": m.role.value, "content": m.content}
-            for m in messages[-10:]
-        ]
-    
-    async def _get_ai_response(
-        self,
-        user_message: str,
-        context: Dict[str, Any],
-        history: List[Dict[str, str]]
-    ) -> str:
-        """Get response from AI."""
-        ai_client = AIClient(self.db)
-        
-        # Build the prompt with context
-        prompt = build_coach_prompt(user_message, context, history)
-        
-        response = await ai_client.complete(
-            prompt=prompt,
-            system=COACH_SYSTEM_PROMPT
-        )
-        
-        return response
-    
-    def _generate_title(self, first_message: str) -> str:
-        """Generate a title from the first message."""
-        # Simple approach: first 50 chars
-        title = first_message[:50]
-        if len(first_message) > 50:
-            title += "..."
-        return title
+        conversation.is_archived = True
+        self.db.commit()
+        return True
 ```
 
 ---
 
-## Step 4: Create Coach Prompts
+## Step 5: Create Coach Prompts
 
 Create `backend/app/ai/prompts/coach.py`:
 
 ```python
-"""Prompts for the financial coach."""
+"""Prompts for the AI coach."""
 
 from typing import Dict, Any, List
 import json
 
 
-COACH_SYSTEM_PROMPT = """You are a friendly, knowledgeable financial coach. You have access to the user's spending data, recurring charges, and financial patterns.
+COACH_SYSTEM_PROMPT = """You are a helpful, friendly financial coach embedded in a personal finance app called Spendah.
 
 Your role:
-- Answer questions about their finances clearly and accurately
-- Provide insights and observations without being preachy
-- Be encouraging but honest
-- Use specific numbers from their data when relevant
-- Keep responses concise unless they ask for detail
+- Answer questions about the user's spending, income, and financial patterns
+- Provide insights and observations about their finances
+- Help them understand where their money goes
+- Offer suggestions for optimization (but never pushy)
+- Be encouraging and non-judgmental about spending habits
 
-Style:
-- Conversational and warm, like a helpful friend who's good with money
-- Never lecture or moralize
-- Acknowledge their choices without judgment
-- Use casual language, not corporate finance-speak
+Important guidelines:
+- You have access to real financial data in the context - use it to give specific, personalized answers
+- Merchant names may appear as tokens (MERCHANT_001, etc.) - refer to them naturally
+- Always be concise - users want quick insights, not essays
+- If you don't have enough data to answer, say so honestly
+- Never make up numbers - only reference data you can see in the context
+- Format currency as $X,XXX.XX
+- When discussing spending, use positive framing when possible
 
-Important:
-- Merchant names may appear as tokens like MERCHANT_001 - refer to them naturally
-- You can see their spending patterns but not their bank balances
-- Don't give specific investment advice - you're a spending coach, not a financial advisor
-- If asked about something outside your data, be honest that you don't have that information
+You are NOT:
+- A financial advisor (don't give investment advice)
+- A tax professional (don't give tax advice)
+- Judgmental about spending choices
 """
 
 
@@ -555,81 +571,77 @@ def build_coach_prompt(
     history: List[Dict[str, str]]
 ) -> str:
     """
-    Build the full prompt with financial context.
+    Build the full prompt for the coach.
+    
+    Args:
+        user_message: The user's current message
+        context: Financial context (tokenized)
+        history: Recent conversation history
+    
+    Returns:
+        Complete prompt string
     """
-    # Format context section
-    context_section = f"""## Current Financial Context
-
-**{context['current_month']}**
-
-Spending this month by category:
-{_format_spending(context['spending_this_month'])}
-
-Last month's spending:
-{_format_spending(context['spending_last_month'])}
-
-Recent transactions:
-{_format_transactions(context['recent_transactions'])}
-
-Active subscriptions/recurring: {len(context['recurring_charges'])} totaling ${context['total_monthly_recurring']:.2f}/month
-
-Pending alerts: {context['pending_alerts']}
-"""
+    parts = []
     
-    # Format conversation history
-    history_section = ""
+    # Add financial context
+    parts.append("## Your Financial Context\n")
+    
+    if context.get("month_summary"):
+        summary = context["month_summary"]
+        parts.append(f"This month so far:")
+        parts.append(f"- Income: ${summary['income']:,.2f}")
+        parts.append(f"- Expenses: ${summary['expenses']:,.2f}")
+        parts.append(f"- Net: ${summary['net']:,.2f}")
+        parts.append("")
+    
+    if context.get("category_spending"):
+        parts.append("Spending by category this month:")
+        for cat in sorted(context["category_spending"], key=lambda x: x["total"], reverse=True)[:10]:
+            parts.append(f"- {cat['category']}: ${cat['total']:,.2f}")
+        parts.append("")
+    
+    if context.get("recurring_charges"):
+        parts.append(f"Active subscriptions/recurring ({len(context['recurring_charges'])} total):")
+        for r in context["recurring_charges"][:5]:
+            amount_str = f"${r['amount']:,.2f}" if r['amount'] else "varies"
+            freq = r['frequency'] or 'unknown'
+            parts.append(f"- {r['name']}: {amount_str} ({freq})")
+        if len(context["recurring_charges"]) > 5:
+            parts.append(f"- ... and {len(context['recurring_charges']) - 5} more")
+        parts.append("")
+    
+    if context.get("unread_alerts"):
+        parts.append(f"Unread alerts ({len(context['unread_alerts'])}):")
+        for alert in context["unread_alerts"]:
+            parts.append(f"- [{alert['severity']}] {alert['title']}")
+        parts.append("")
+    
+    if context.get("recent_transactions"):
+        parts.append(f"Recent transactions ({len(context['recent_transactions'])} shown):")
+        for t in context["recent_transactions"][:10]:
+            parts.append(f"- {t['date']}: {t['merchant']} ${abs(t['amount']):,.2f}")
+        parts.append("")
+    
+    # Add conversation history
     if history:
-        history_section = "\n## Recent Conversation\n"
-        for msg in history[-6:]:  # Last 6 messages for context
-            role = "User" if msg['role'] == 'user' else "Coach"
-            history_section += f"\n{role}: {msg['content']}\n"
+        parts.append("## Recent Conversation")
+        for msg in history[-6:]:  # Last 3 exchanges
+            role = "User" if msg["role"] == "user" else "Coach"
+            parts.append(f"{role}: {msg['content']}")
+        parts.append("")
     
-    # Build full prompt
-    prompt = f"""{context_section}
-{history_section}
-## Current Question
-
-User: {user_message}
-
-Provide a helpful, friendly response based on their financial data."""
+    # Add current message
+    parts.append("## Current Question")
+    parts.append(f"User: {user_message}")
+    parts.append("")
+    parts.append("Respond helpfully and concisely:")
     
-    return prompt
-
-
-def _format_spending(spending: Dict[str, float]) -> str:
-    """Format spending dict as readable text."""
-    if not spending:
-        return "No spending recorded yet"
-    
-    lines = []
-    sorted_spending = sorted(spending.items(), key=lambda x: x[1], reverse=True)
-    for category, amount in sorted_spending[:8]:  # Top 8 categories
-        lines.append(f"- {category}: ${amount:.2f}")
-    
-    total = sum(spending.values())
-    lines.append(f"\nTotal: ${total:.2f}")
-    
-    return "\n".join(lines)
-
-
-def _format_transactions(transactions: List[Dict]) -> str:
-    """Format recent transactions."""
-    if not transactions:
-        return "No recent transactions"
-    
-    lines = []
-    for t in transactions[:5]:  # Show 5 most recent
-        merchant = t.get('merchant', 'Unknown')
-        amount = t.get('amount', 0)
-        date = t.get('date', '')
-        lines.append(f"- {date}: {merchant} ${abs(amount):.2f}")
-    
-    return "\n".join(lines)
+    return "\n".join(parts)
 ```
 
 ---
 
-## Step 5: Create Coach API Endpoints
+## Step 6: Create Coach API Endpoints
 
 Create `backend/app/api/coach.py`:
 
@@ -644,7 +656,6 @@ from app.database import get_db
 from app.schemas.coach import (
     MessageCreate,
     ChatResponse,
-    MessageResponse,
     ConversationSummary,
     ConversationDetail,
     ConversationList,
@@ -655,32 +666,26 @@ router = APIRouter(prefix="/coach", tags=["coach"])
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def send_message(
-    message: MessageCreate,
+async def chat(
+    request: MessageCreate,
     db: Session = Depends(get_db)
 ):
     """Send a message to the coach and get a response."""
     service = CoachService(db)
     
     try:
-        conversation, response_message = await service.chat(
-            content=message.content,
-            conversation_id=message.conversation_id
+        response, conversation_id, message_id = await service.chat(
+            message=request.message,
+            conversation_id=request.conversation_id
         )
         
         return ChatResponse(
-            conversation_id=conversation.id,
-            message=MessageResponse(
-                id=response_message.id,
-                role=response_message.role,
-                content=response_message.content,
-                created_at=response_message.created_at
-            )
+            response=response,
+            conversation_id=conversation_id,
+            message_id=message_id
         )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Coach error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/conversations", response_model=ConversationList)
@@ -690,7 +695,7 @@ def list_conversations(
     include_archived: bool = False,
     db: Session = Depends(get_db)
 ):
-    """Get list of conversations."""
+    """List all conversations."""
     service = CoachService(db)
     conversations, total = service.get_conversations(
         limit=limit,
@@ -698,25 +703,18 @@ def list_conversations(
         include_archived=include_archived
     )
     
-    items = []
-    for conv in conversations:
-        last_message = conv.messages[-1] if conv.messages else None
-        preview = ""
-        if last_message:
-            preview = service.tokenizer.detokenize(last_message.content)[:100]
-        
-        items.append(ConversationSummary(
-            id=conv.id,
-            title=conv.title,
-            last_message_at=conv.last_message_at,
-            message_count=len(conv.messages),
-            preview=preview
-        ))
-    
     return ConversationList(
-        items=items,
-        total=total,
-        has_more=offset + limit < total
+        items=[
+            ConversationSummary(
+                id=c.id,
+                summary=c.summary,
+                last_message_at=c.last_message_at,
+                message_count=c.message_count,
+                is_archived=c.is_archived
+            )
+            for c in conversations
+        ],
+        total=total
     )
 
 
@@ -725,30 +723,14 @@ def get_conversation(
     conversation_id: str,
     db: Session = Depends(get_db)
 ):
-    """Get a conversation with all messages."""
+    """Get a single conversation with all messages."""
     service = CoachService(db)
     conversation = service.get_conversation(conversation_id)
     
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    return ConversationDetail(
-        id=conversation.id,
-        title=conversation.title,
-        summary=conversation.summary,
-        started_at=conversation.started_at,
-        last_message_at=conversation.last_message_at,
-        is_archived=conversation.is_archived,
-        messages=[
-            MessageResponse(
-                id=m.id,
-                role=m.role,
-                content=m.content,
-                created_at=m.created_at
-            )
-            for m in conversation.messages
-        ]
-    )
+    return conversation
 
 
 @router.delete("/conversations/{conversation_id}")
@@ -758,11 +740,12 @@ def delete_conversation(
 ):
     """Delete a conversation."""
     service = CoachService(db)
+    success = service.delete_conversation(conversation_id)
     
-    if not service.delete_conversation(conversation_id):
+    if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    return {"status": "deleted"}
+    return {"deleted": True}
 
 
 @router.post("/conversations/{conversation_id}/archive")
@@ -772,12 +755,12 @@ def archive_conversation(
 ):
     """Archive a conversation."""
     service = CoachService(db)
-    conversation = service.archive_conversation(conversation_id)
+    success = service.archive_conversation(conversation_id)
     
-    if not conversation:
+    if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    return {"status": "archived"}
+    return {"archived": True}
 ```
 
 Update `backend/app/api/router.py`:
@@ -791,100 +774,106 @@ router.include_router(coach_router)
 
 ---
 
-## Step 6: Add Coach Types to Frontend
+## Step 7: Add Frontend Types
 
 Update `frontend/src/types/index.ts`:
 
 ```typescript
-// Coach types
-export type MessageRole = 'user' | 'assistant';
+// Add coach types
 
-export interface Message {
+export interface ChatMessage {
   id: string;
-  role: MessageRole;
+  role: 'user' | 'assistant';
   content: string;
   created_at: string;
 }
 
+export interface ChatResponse {
+  response: string;
+  conversation_id: string;
+  message_id: string;
+}
+
 export interface ConversationSummary {
   id: string;
-  title: string | null;
+  summary: string | null;
   last_message_at: string;
   message_count: number;
-  preview: string;
+  is_archived: boolean;
 }
 
 export interface ConversationDetail {
   id: string;
-  title: string | null;
   summary: string | null;
   started_at: string;
   last_message_at: string;
   is_archived: boolean;
-  messages: Message[];
-}
-
-export interface ChatResponse {
-  conversation_id: string;
-  message: Message;
+  messages: ChatMessage[];
 }
 
 export interface ConversationList {
   items: ConversationSummary[];
   total: number;
-  has_more: boolean;
 }
 ```
 
 ---
 
-## Step 7: Create Coach API Functions
+## Step 8: Add Frontend API Functions
 
 Update `frontend/src/lib/api.ts`:
 
 ```typescript
-// Coach API
+import type {
+  ChatResponse,
+  ConversationList,
+  ConversationDetail,
+} from '@/types';
+
+// Add coach API functions
 export const coachApi = {
-  chat: (content: string, conversationId?: string) =>
+  chat: (message: string, conversationId?: string): Promise<ChatResponse> =>
     fetch(`${API_BASE}/coach/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        content, 
-        conversation_id: conversationId 
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId,
       }),
-    }).then(r => r.json()) as Promise<ChatResponse>,
+    }).then(r => {
+      if (!r.ok) throw new Error('Chat failed');
+      return r.json();
+    }),
 
-  getConversations: (limit = 20, offset = 0) =>
+  getConversations: (limit = 20, offset = 0): Promise<ConversationList> =>
     fetch(`${API_BASE}/coach/conversations?limit=${limit}&offset=${offset}`)
-      .then(r => r.json()) as Promise<ConversationList>,
+      .then(r => r.json()),
 
-  getConversation: (id: string) =>
-    fetch(`${API_BASE}/coach/conversations/${id}`)
-      .then(r => r.json()) as Promise<ConversationDetail>,
+  getConversation: (id: string): Promise<ConversationDetail> =>
+    fetch(`${API_BASE}/coach/conversations/${id}`).then(r => r.json()),
 
-  deleteConversation: (id: string) =>
+  deleteConversation: (id: string): Promise<void> =>
     fetch(`${API_BASE}/coach/conversations/${id}`, { method: 'DELETE' })
-      .then(r => r.json()),
+      .then(r => { if (!r.ok) throw new Error('Delete failed'); }),
 
-  archiveConversation: (id: string) =>
+  archiveConversation: (id: string): Promise<void> =>
     fetch(`${API_BASE}/coach/conversations/${id}/archive`, { method: 'POST' })
-      .then(r => r.json()),
+      .then(r => { if (!r.ok) throw new Error('Archive failed'); }),
 };
 ```
 
 ---
 
-## Step 8: Create Chat Message Component
+## Step 9: Create ChatMessage Component
 
 Create `frontend/src/components/coach/ChatMessage.tsx`:
 
 ```tsx
 import { cn } from '@/lib/utils';
-import type { Message } from '@/types';
+import type { ChatMessage as ChatMessageType } from '@/types';
 
 interface ChatMessageProps {
-  message: Message;
+  message: ChatMessageType;
 }
 
 export function ChatMessage({ message }: ChatMessageProps) {
@@ -893,7 +882,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        'flex w-full',
+        'flex w-full mb-4',
         isUser ? 'justify-end' : 'justify-start'
       )}
     >
@@ -906,12 +895,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
         )}
       >
         <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-        <span className="text-xs opacity-60 mt-1 block">
-          {new Date(message.created_at).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit'
-          })}
-        </span>
+        <p className="text-xs opacity-70 mt-1">
+          {new Date(message.created_at).toLocaleTimeString()}
+        </p>
       </div>
     </div>
   );
@@ -920,7 +906,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
 ---
 
-## Step 9: Create Coach Input Component
+## Step 10: Create CoachInput Component
 
 Create `frontend/src/components/coach/CoachInput.tsx`:
 
@@ -928,21 +914,21 @@ Create `frontend/src/components/coach/CoachInput.tsx`:
 import { useState, KeyboardEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send, Loader2 } from 'lucide-react';
+import { Send } from 'lucide-react';
 
 interface CoachInputProps {
   onSend: (message: string) => void;
-  isLoading?: boolean;
+  disabled?: boolean;
   placeholder?: string;
 }
 
-export function CoachInput({ onSend, isLoading, placeholder }: CoachInputProps) {
-  const [input, setInput] = useState('');
+export function CoachInput({ onSend, disabled, placeholder }: CoachInputProps) {
+  const [message, setMessage] = useState('');
 
   const handleSend = () => {
-    if (input.trim() && !isLoading) {
-      onSend(input.trim());
-      setInput('');
+    if (message.trim() && !disabled) {
+      onSend(message.trim());
+      setMessage('');
     }
   };
 
@@ -956,24 +942,21 @@ export function CoachInput({ onSend, isLoading, placeholder }: CoachInputProps) 
   return (
     <div className="flex gap-2 items-end">
       <Textarea
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder || "Ask about your spending..."}
+        placeholder={placeholder || "Ask about your finances..."}
+        disabled={disabled}
         className="min-h-[60px] max-h-[120px] resize-none"
-        disabled={isLoading}
+        rows={2}
       />
       <Button
         onClick={handleSend}
-        disabled={!input.trim() || isLoading}
+        disabled={disabled || !message.trim()}
         size="icon"
         className="h-[60px] w-[60px]"
       >
-        {isLoading ? (
-          <Loader2 className="h-5 w-5 animate-spin" />
-        ) : (
-          <Send className="h-5 w-5" />
-        )}
+        <Send className="h-5 w-5" />
       </Button>
     </div>
   );
@@ -982,7 +965,7 @@ export function CoachInput({ onSend, isLoading, placeholder }: CoachInputProps) 
 
 ---
 
-## Step 10: Create Coach Widget (Dashboard)
+## Step 11: Create CoachWidget Component
 
 Create `frontend/src/components/coach/CoachWidget.tsx`:
 
@@ -990,83 +973,89 @@ Create `frontend/src/components/coach/CoachWidget.tsx`:
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MessageSquare, Maximize2 } from 'lucide-react';
-import { ChatMessage } from './ChatMessage';
+import { MessageCircle, Expand } from 'lucide-react';
 import { CoachInput } from './CoachInput';
+import { ChatMessage } from './ChatMessage';
 import { coachApi } from '@/lib/api';
-import type { Message } from '@/types';
+import type { ChatMessage as ChatMessageType } from '@/types';
 
 interface CoachWidgetProps {
   onExpand?: () => void;
 }
 
 export function CoachWidget({ onExpand }: CoachWidgetProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSend = async (content: string) => {
-    // Optimistically add user message
-    const userMessage: Message = {
+  const handleSend = async (message: string) => {
+    // Add user message immediately
+    const userMessage: ChatMessageType = {
       id: `temp-${Date.now()}`,
       role: 'user',
-      content,
+      content: message,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMessage]);
-    setIsLoading(true);
+    setLoading(true);
 
     try {
-      const response = await coachApi.chat(content, conversationId || undefined);
+      const response = await coachApi.chat(message, conversationId || undefined);
       setConversationId(response.conversation_id);
-      setMessages((prev) => [...prev, response.message]);
+
+      // Add assistant message
+      const assistantMessage: ChatMessageType = {
+        id: response.message_id,
+        role: 'assistant',
+        content: response.response,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
-      console.error('Coach error:', error);
-      // Remove optimistic message on error
-      setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+      console.error('Chat failed:', error);
+      // Remove the user message on error
+      setMessages((prev) => prev.slice(0, -1));
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   return (
-    <Card className="h-[400px] flex flex-col">
-      <CardHeader className="flex-shrink-0 pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" />
-            Financial Coach
-          </CardTitle>
-          {onExpand && (
-            <Button variant="ghost" size="icon" onClick={onExpand}>
-              <Maximize2 className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <MessageCircle className="h-5 w-5" />
+          Financial Coach
+        </CardTitle>
+        {onExpand && (
+          <Button variant="ghost" size="icon" onClick={onExpand}>
+            <Expand className="h-4 w-4" />
+          </Button>
+        )}
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col overflow-hidden">
-        {/* Messages area */}
-        <div className="flex-1 overflow-y-auto space-y-3 mb-3">
+      <CardContent>
+        {/* Message area */}
+        <div className="h-[200px] overflow-y-auto mb-4 space-y-2">
           {messages.length === 0 ? (
-            <div className="text-center text-muted-foreground py-8">
-              <p className="text-sm">Ask me anything about your spending!</p>
-              <p className="text-xs mt-2">Try: "How much did I spend on dining?"</p>
-            </div>
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Ask me anything about your spending!
+            </p>
           ) : (
             messages.map((msg) => (
               <ChatMessage key={msg.id} message={msg} />
             ))
           )}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-muted rounded-lg px-4 py-2">
+                <p className="text-sm text-muted-foreground">Thinking...</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Input */}
-        <div className="flex-shrink-0">
-          <CoachInput
-            onSend={handleSend}
-            isLoading={isLoading}
-            placeholder="Ask about your spending..."
-          />
-        </div>
+        <CoachInput onSend={handleSend} disabled={loading} />
       </CardContent>
     </Card>
   );
@@ -1075,7 +1064,7 @@ export function CoachWidget({ onExpand }: CoachWidgetProps) {
 
 ---
 
-## Step 11: Create Coach Drawer (Global)
+## Step 12: Create CoachDrawer Component
 
 Create `frontend/src/components/coach/CoachDrawer.tsx`:
 
@@ -1089,34 +1078,30 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { MessageSquare, History, Plus } from 'lucide-react';
+import { MessageCircle, Trash2 } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { CoachInput } from './CoachInput';
 import { coachApi } from '@/lib/api';
-import type { Message, ConversationSummary } from '@/types';
+import type { ChatMessage as ChatMessageType, ConversationSummary } from '@/types';
 
 export function CoachDrawer() {
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load conversation history when drawer opens
+  // Load conversations on open
   useEffect(() => {
-    if (open && conversations.length === 0) {
+    if (open) {
       loadConversations();
     }
   }, [open]);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Scroll to bottom on new messages
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const loadConversations = async () => {
@@ -1131,41 +1116,57 @@ export function CoachDrawer() {
   const loadConversation = async (id: string) => {
     try {
       const data = await coachApi.getConversation(id);
-      setMessages(data.messages);
       setConversationId(id);
-      setShowHistory(false);
+      setMessages(data.messages);
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
   };
 
   const startNewConversation = () => {
-    setMessages([]);
     setConversationId(null);
-    setShowHistory(false);
+    setMessages([]);
   };
 
-  const handleSend = async (content: string) => {
-    const userMessage: Message = {
+  const handleSend = async (message: string) => {
+    const userMessage: ChatMessageType = {
       id: `temp-${Date.now()}`,
       role: 'user',
-      content,
+      content: message,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMessage]);
-    setIsLoading(true);
+    setLoading(true);
 
     try {
-      const response = await coachApi.chat(content, conversationId || undefined);
+      const response = await coachApi.chat(message, conversationId || undefined);
       setConversationId(response.conversation_id);
-      setMessages((prev) => [...prev, response.message]);
-      // Refresh conversation list
+
+      const assistantMessage: ChatMessageType = {
+        id: response.message_id,
+        role: 'assistant',
+        content: response.response,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      loadConversations(); // Refresh list
+    } catch (error) {
+      console.error('Chat failed:', error);
+      setMessages((prev) => prev.slice(0, -1));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await coachApi.deleteConversation(id);
+      if (conversationId === id) {
+        startNewConversation();
+      }
       loadConversations();
     } catch (error) {
-      console.error('Coach error:', error);
-      setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
-    } finally {
-      setIsLoading(false);
+      console.error('Failed to delete:', error);
     }
   };
 
@@ -1175,108 +1176,82 @@ export function CoachDrawer() {
         <Button
           variant="outline"
           size="icon"
-          className="fixed bottom-4 right-4 h-14 w-14 rounded-full shadow-lg"
+          className="fixed bottom-4 right-4 h-12 w-12 rounded-full shadow-lg"
         >
-          <MessageSquare className="h-6 w-6" />
+          <MessageCircle className="h-6 w-6" />
         </Button>
       </SheetTrigger>
       <SheetContent className="w-[400px] sm:w-[540px] flex flex-col">
         <SheetHeader>
-          <div className="flex items-center justify-between">
-            <SheetTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
+          <SheetTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5" />
               Financial Coach
-            </SheetTitle>
-            <div className="flex gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowHistory(!showHistory)}
-              >
-                <History className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={startNewConversation}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+            </span>
+            <Button variant="outline" size="sm" onClick={startNewConversation}>
+              New Chat
+            </Button>
+          </SheetTitle>
         </SheetHeader>
 
-        {showHistory ? (
-          <ScrollArea className="flex-1 mt-4">
-            <div className="space-y-2">
+        <div className="flex-1 flex flex-col mt-4 min-h-0">
+          {/* Conversation list (collapsed) */}
+          {conversations.length > 0 && !conversationId && (
+            <div className="mb-4 space-y-2 max-h-[200px] overflow-y-auto">
+              <p className="text-sm font-medium text-muted-foreground">Recent conversations</p>
               {conversations.map((conv) => (
-                <button
+                <div
                   key={conv.id}
+                  className="flex items-center justify-between p-2 rounded hover:bg-muted cursor-pointer"
                   onClick={() => loadConversation(conv.id)}
-                  className="w-full text-left p-3 rounded-lg hover:bg-muted transition-colors"
                 >
-                  <p className="font-medium truncate">
-                    {conv.title || 'Untitled conversation'}
-                  </p>
-                  <p className="text-sm text-muted-foreground truncate">
-                    {conv.preview}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {new Date(conv.last_message_at).toLocaleDateString()}
-                  </p>
-                </button>
-              ))}
-              {conversations.length === 0 && (
-                <p className="text-center text-muted-foreground py-8">
-                  No conversations yet
-                </p>
-              )}
-            </div>
-          </ScrollArea>
-        ) : (
-          <>
-            {/* Messages */}
-            <ScrollArea className="flex-1 mt-4" ref={scrollRef}>
-              <div className="space-y-3 pr-4">
-                {messages.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    <p>Ask me anything about your finances!</p>
-                    <div className="mt-4 space-y-2">
-                      <p className="text-sm">Try asking:</p>
-                      <button
-                        onClick={() => handleSend('How much did I spend this month?')}
-                        className="block w-full text-sm p-2 rounded bg-muted hover:bg-muted/80"
-                      >
-                        "How much did I spend this month?"
-                      </button>
-                      <button
-                        onClick={() => handleSend('What are my biggest expenses?')}
-                        className="block w-full text-sm p-2 rounded bg-muted hover:bg-muted/80"
-                      >
-                        "What are my biggest expenses?"
-                      </button>
-                      <button
-                        onClick={() => handleSend('Any subscriptions I should review?')}
-                        className="block w-full text-sm p-2 rounded bg-muted hover:bg-muted/80"
-                      >
-                        "Any subscriptions I should review?"
-                      </button>
-                    </div>
+                  <div>
+                    <p className="text-sm truncate max-w-[280px]">
+                      {conv.summary || 'Conversation'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {conv.message_count} messages
+                    </p>
                   </div>
-                ) : (
-                  messages.map((msg) => (
-                    <ChatMessage key={msg.id} message={msg} />
-                  ))
-                )}
-              </div>
-            </ScrollArea>
-
-            {/* Input */}
-            <div className="mt-4">
-              <CoachInput onSend={handleSend} isLoading={isLoading} />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(conv.id);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
             </div>
-          </>
-        )}
+          )}
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+            {messages.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Ask me anything about your finances!
+              </p>
+            ) : (
+              messages.map((msg) => (
+                <ChatMessage key={msg.id} message={msg} />
+              ))
+            )}
+            {loading && (
+              <div className="flex justify-start">
+                <div className="bg-muted rounded-lg px-4 py-2">
+                  <p className="text-sm text-muted-foreground">Thinking...</p>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <CoachInput onSend={handleSend} disabled={loading} />
+        </div>
       </SheetContent>
     </Sheet>
   );
@@ -1285,29 +1260,31 @@ export function CoachDrawer() {
 
 ---
 
-## Step 12: Integrate Coach into Layout
+## Step 13: Integrate into Layout
 
-Update `frontend/src/components/layout/Layout.tsx` to include the coach drawer:
+Update `frontend/src/components/layout/Layout.tsx`:
 
 ```tsx
 import { CoachDrawer } from '@/components/coach/CoachDrawer';
 
-// Add at the end of the Layout component, just before the closing fragment:
+// Add inside the Layout component, at the end before closing tags:
 <CoachDrawer />
 ```
 
-Update `frontend/src/pages/Dashboard.tsx` to include the coach widget:
+Optionally, add CoachWidget to Dashboard:
+
+Update `frontend/src/pages/Dashboard.tsx`:
 
 ```tsx
 import { CoachWidget } from '@/components/coach/CoachWidget';
 
-// Add in the dashboard grid, perhaps in the right column:
+// Add in the dashboard grid:
 <CoachWidget />
 ```
 
 ---
 
-## Step 13: Add Tests
+## Step 14: Add Tests
 
 Create `backend/tests/test_coach_service.py`:
 
@@ -1315,250 +1292,255 @@ Create `backend/tests/test_coach_service.py`:
 """Tests for coach service."""
 
 import pytest
-from datetime import date, datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from app.services.coach_service import CoachService
-from app.models.coach import Conversation, Message, MessageRole
-from app.models.category import Category
+from app.models.conversation import Conversation, Message, MessageRole
 from app.models.transaction import Transaction
-from app.models.account import Account, AccountType
+from app.models.category import Category
 
 
-class TestCoachService:
-    """Tests for CoachService."""
-    
+class TestConversationManagement:
+    """Tests for conversation CRUD."""
+
     def test_create_conversation(self, db_session):
         """Should create a new conversation."""
         service = CoachService(db_session)
-        
-        # Create conversation directly
-        conv = Conversation(title="Test")
-        db_session.add(conv)
-        db_session.commit()
+        conv = service._create_conversation()
         
         assert conv.id is not None
-        assert conv.title == "Test"
-    
-    def test_get_conversations_empty(self, db_session):
-        """Should return empty list when no conversations."""
+        assert conv.is_archived == False
+
+    def test_get_conversations(self, db_session):
+        """Should list conversations."""
         service = CoachService(db_session)
+        
+        # Create some conversations
+        for _ in range(3):
+            service._create_conversation()
         
         convs, total = service.get_conversations()
         
-        assert convs == []
-        assert total == 0
-    
-    def test_get_conversations_returns_recent_first(self, db_session):
-        """Should return conversations in reverse chronological order."""
+        assert total == 3
+        assert len(convs) == 3
+
+    def test_get_conversations_excludes_archived(self, db_session):
+        """Should exclude archived by default."""
         service = CoachService(db_session)
         
-        # Create conversations
-        conv1 = Conversation(title="First")
-        conv2 = Conversation(title="Second")
-        db_session.add_all([conv1, conv2])
+        conv1 = service._create_conversation()
+        conv2 = service._create_conversation()
+        conv2.is_archived = True
         db_session.commit()
         
         convs, total = service.get_conversations()
-        
-        assert total == 2
-        assert convs[0].title == "Second"  # Most recent first
-    
-    def test_get_conversation_not_found(self, db_session):
-        """Should return None for non-existent conversation."""
-        service = CoachService(db_session)
-        
-        result = service.get_conversation("nonexistent")
-        
-        assert result is None
-    
-    def test_delete_conversation(self, db_session):
-        """Should delete conversation and messages."""
-        service = CoachService(db_session)
-        
-        # Create conversation with message
-        conv = Conversation(title="To Delete")
-        db_session.add(conv)
-        db_session.flush()
-        
-        msg = Message(
-            conversation_id=conv.id,
-            role=MessageRole.user,
-            content="Hello"
-        )
-        db_session.add(msg)
-        db_session.commit()
-        
-        conv_id = conv.id
-        
-        # Delete
-        result = service.delete_conversation(conv_id)
-        
-        assert result == True
-        assert db_session.query(Conversation).filter_by(id=conv_id).first() is None
-    
-    def test_delete_conversation_not_found(self, db_session):
-        """Should return False for non-existent conversation."""
-        service = CoachService(db_session)
-        
-        result = service.delete_conversation("nonexistent")
-        
-        assert result == False
-    
-    def test_archive_conversation(self, db_session):
-        """Should archive conversation."""
-        service = CoachService(db_session)
-        
-        conv = Conversation(title="To Archive")
-        db_session.add(conv)
-        db_session.commit()
-        
-        result = service.archive_conversation(conv.id)
-        
-        assert result is not None
-        assert result.is_archived == True
-    
-    def test_generate_title(self, db_session):
-        """Should generate title from first message."""
-        service = CoachService(db_session)
-        
-        short_title = service._generate_title("Hello")
-        assert short_title == "Hello"
-        
-        long_message = "This is a very long message that should be truncated to fifty characters"
-        long_title = service._generate_title(long_message)
-        assert len(long_title) == 53  # 50 + "..."
-        assert long_title.endswith("...")
-    
-    def test_get_spending_by_category(self, db_session):
-        """Should calculate spending totals by category."""
-        service = CoachService(db_session)
-        
-        # Create test data
-        account = Account(name="Test", account_type=AccountType.checking)
-        db_session.add(account)
-        db_session.flush()
-        
-        category = Category(name="Food", color="#000", icon="utensils")
-        db_session.add(category)
-        db_session.flush()
-        
-        txn = Transaction(
-            date=date.today(),
-            amount=Decimal("-50.00"),
-            raw_description="Test",
-            clean_merchant="Test",
-            account_id=account.id,
-            category_id=category.id
-        )
-        db_session.add(txn)
-        db_session.commit()
-        
-        result = service._get_spending_by_category(date.today(), date.today())
-        
-        assert "Food" in result
-        assert result["Food"] == Decimal("50.00")
-    
-    def test_excludes_archived_by_default(self, db_session):
-        """Should exclude archived conversations by default."""
-        service = CoachService(db_session)
-        
-        conv1 = Conversation(title="Active")
-        conv2 = Conversation(title="Archived", is_archived=True)
-        db_session.add_all([conv1, conv2])
-        db_session.commit()
-        
-        convs, total = service.get_conversations(include_archived=False)
         
         assert total == 1
-        assert convs[0].title == "Active"
-    
-    def test_includes_archived_when_requested(self, db_session):
-        """Should include archived conversations when requested."""
+        assert convs[0].id == conv1.id
+
+    def test_get_conversations_includes_archived(self, db_session):
+        """Should include archived when requested."""
         service = CoachService(db_session)
         
-        conv1 = Conversation(title="Active")
-        conv2 = Conversation(title="Archived", is_archived=True)
-        db_session.add_all([conv1, conv2])
+        service._create_conversation()
+        conv2 = service._create_conversation()
+        conv2.is_archived = True
         db_session.commit()
         
         convs, total = service.get_conversations(include_archived=True)
         
         assert total == 2
+
+    def test_delete_conversation(self, db_session):
+        """Should delete conversation and messages."""
+        service = CoachService(db_session)
+        conv = service._create_conversation()
+        
+        # Add a message
+        msg = Message(
+            conversation_id=conv.id,
+            role=MessageRole.user,
+            content="test"
+        )
+        db_session.add(msg)
+        db_session.commit()
+        
+        # Delete
+        result = service.delete_conversation(conv.id)
+        
+        assert result == True
+        assert db_session.query(Conversation).filter_by(id=conv.id).first() is None
+        assert db_session.query(Message).filter_by(conversation_id=conv.id).first() is None
+
+    def test_archive_conversation(self, db_session):
+        """Should archive conversation."""
+        service = CoachService(db_session)
+        conv = service._create_conversation()
+        
+        result = service.archive_conversation(conv.id)
+        
+        assert result == True
+        db_session.refresh(conv)
+        assert conv.is_archived == True
+
+
+class TestContextBuilding:
+    """Tests for financial context assembly."""
+
+    def test_build_context_empty(self, db_session):
+        """Should handle empty database."""
+        service = CoachService(db_session)
+        context = service._build_context()
+        
+        assert "month_summary" in context
+        assert context["month_summary"]["income"] == 0
+        assert context["month_summary"]["expenses"] == 0
+
+    def test_build_context_with_transactions(self, db_session, sample_account, sample_category):
+        """Should include recent transactions."""
+        service = CoachService(db_session)
+        
+        # Add a recent transaction
+        txn = Transaction(
+            date=datetime.utcnow().date(),
+            amount=Decimal("-50.00"),
+            raw_description="Test",
+            clean_merchant="Test Store",
+            account_id=sample_account.id,
+            category_id=sample_category.id
+        )
+        db_session.add(txn)
+        db_session.commit()
+        
+        context = service._build_context()
+        
+        assert len(context["recent_transactions"]) > 0
+        assert context["month_summary"]["expenses"] == 50.0
+
+    def test_context_excludes_old_transactions(self, db_session, sample_account, sample_category):
+        """Should not include transactions older than 30 days."""
+        service = CoachService(db_session)
+        
+        # Add an old transaction
+        old_date = datetime.utcnow().date() - timedelta(days=60)
+        txn = Transaction(
+            date=old_date,
+            amount=Decimal("-50.00"),
+            raw_description="Old Test",
+            clean_merchant="Old Store",
+            account_id=sample_account.id,
+            category_id=sample_category.id
+        )
+        db_session.add(txn)
+        db_session.commit()
+        
+        context = service._build_context()
+        
+        assert len(context["recent_transactions"]) == 0
+
+
+class TestConversationHistory:
+    """Tests for conversation history retrieval."""
+
+    def test_get_empty_history(self, db_session):
+        """Should handle conversation with no messages."""
+        service = CoachService(db_session)
+        conv = service._create_conversation()
+        
+        history = service._get_conversation_history(conv.id)
+        
+        assert history == []
+
+    def test_get_history_order(self, db_session):
+        """Should return messages in chronological order."""
+        service = CoachService(db_session)
+        conv = service._create_conversation()
+        
+        # Add messages
+        for i in range(3):
+            msg = Message(
+                conversation_id=conv.id,
+                role=MessageRole.user if i % 2 == 0 else MessageRole.assistant,
+                content=f"Message {i}"
+            )
+            db_session.add(msg)
+        db_session.commit()
+        
+        history = service._get_conversation_history(conv.id)
+        
+        # Should be in order (excluding last which would be the "current" message)
+        assert len(history) == 2  # 3 - 1 = 2
 ```
 
 ---
 
-## Step 14: Final Testing & Verification
+## Verification Checklist
+
+- [ ] `alembic upgrade head` succeeds
+- [ ] `conversations` and `messages` tables created
+- [ ] `POST /api/v1/coach/chat` returns response
+- [ ] `GET /api/v1/coach/conversations` lists conversations
+- [ ] `GET /api/v1/coach/conversations/{id}` returns messages
+- [ ] `DELETE /api/v1/coach/conversations/{id}` works
+- [ ] `POST /api/v1/coach/conversations/{id}/archive` works
+- [ ] CoachWidget renders on Dashboard
+- [ ] CoachDrawer opens from floating button
+- [ ] Can send messages and receive AI responses
+- [ ] Messages persist across page reloads
+- [ ] Conversation history loads correctly
+- [ ] Tests pass: `docker compose exec api pytest tests/test_coach_service.py -v`
+- [ ] No console errors in browser
+
+---
+
+## Testing Commands
 
 ```bash
-# Full rebuild
-cd ~/projects/spendah
+# Rebuild and restart
 docker compose down
 docker compose up -d --build
 sleep 5
 
-# Check for errors
-docker compose logs api --tail 50
-
-# Run migrations
+# Run migration
 docker compose exec api alembic upgrade head
 
-# Test new endpoints
-curl http://localhost:8000/api/v1/coach/conversations
+# Check tables
+docker compose exec api python -c "
+from app.database import engine
+from sqlalchemy import inspect
+insp = inspect(engine)
+print('conversations:', 'conversations' in insp.get_table_names())
+print('messages:', 'messages' in insp.get_table_names())
+"
+
+# Test endpoints
 curl -X POST http://localhost:8000/api/v1/coach/chat \
   -H "Content-Type: application/json" \
-  -d '{"content": "How much did I spend this month?"}'
+  -d '{"message": "How much did I spend this month?"}'
 
-# Run coach tests
+curl http://localhost:8000/api/v1/coach/conversations
+
+# Run tests
 docker compose exec api pytest tests/test_coach_service.py -v
 
 # Run all tests
 docker compose exec api pytest -v --tb=short
 ```
 
-**Test in UI:**
-1. Go to Dashboard - should see Coach widget
-2. Click floating chat button (bottom right) - should open drawer
-3. Send a message - should get AI response
-4. Click history icon - should see conversation list
-5. Start new conversation - should clear messages
-6. Close and reopen - should persist conversation
-
----
-
-## Verification Checklist
-
-- [ ] `GET /api/v1/coach/conversations` returns list
-- [ ] `POST /api/v1/coach/chat` creates conversation and returns response
-- [ ] `GET /api/v1/coach/conversations/{id}` returns full conversation
-- [ ] `DELETE /api/v1/coach/conversations/{id}` deletes conversation
-- [ ] `POST /api/v1/coach/conversations/{id}/archive` archives conversation
-- [ ] Coach widget appears on Dashboard
-- [ ] Coach drawer opens from floating button
-- [ ] Messages display correctly (user right, assistant left)
-- [ ] Conversation history shows in drawer
-- [ ] New conversation button works
-- [ ] Quick suggestion buttons work
-- [ ] AI responses include actual financial data
-- [ ] Messages are tokenized in database
-- [ ] Coach tests pass
-- [ ] No console errors
-
 ---
 
 ## Notes
 
 **What this achieves:**
-- Foundation for conversational AI coach
-- Privacy-preserving message storage (tokenized)
-- Context-aware responses using actual financial data
-- Persistent conversation history
-- Accessible from any page via drawer
+- Persistent conversation storage
+- Tokenized messages (cloud-safe)
+- Context assembly from financial data
+- Basic chat UI (widget + drawer)
+- Foundation for Phase 9 (proactive insights, goals)
 
-**Phase 9 will add:**
-- Proactive observations (coach notices things)
+**What's NOT included (Phase 9):**
+- Proactive observations
 - Goal setting and tracking
-- Memory across conversations
-- Full chat page for extended conversations
+- Conversation summarization
+- Full-page chat interface

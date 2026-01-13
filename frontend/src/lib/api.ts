@@ -28,7 +28,8 @@ import type {
   TokenStats,
 } from '@/types'
 
-const API_BASE = `${window.location.protocol}//${window.location.hostname}:8000/api/v1`
+const API_PORT = import.meta.env.VITE_API_PORT || '8000'
+const API_BASE = `${window.location.protocol}//${window.location.hostname}:${API_PORT}/api/v1`
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -421,5 +422,3 @@ export const privacyApi = {
 }
 
 export default api
-
-

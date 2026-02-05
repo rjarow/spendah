@@ -26,6 +26,7 @@ from app.parsers.ofx_parser import OFXParser
 from app.services.deduplication_service import generate_transaction_hash, is_duplicate
 from app.services.ai_service import detect_csv_format, clean_merchant_name, categorize_transaction
 from app.services.alerts_service import analyze_transaction_for_alerts
+from app.services.budget_alerts import check_all_budget_alerts
 
 import asyncio
 
@@ -342,6 +343,12 @@ async def process_import_with_ai(
         if errors:
             import_log.error_message = "; ".join(errors[:10])
         db.commit()
+
+        # Check budget alerts after successful import
+        try:
+            check_all_budget_alerts(db)
+        except Exception as e:
+            print(f"Budget alert check failed after import: {e}")
 
         processed_path = Path(settings.import_processed_path)
         processed_path.mkdir(parents=True, exist_ok=True)

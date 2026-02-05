@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getDashboardSummary, getDashboardTrends, getRecentTransactions, getUpcomingRenewals } from '@/lib/api'
+import { getDashboardSummary, getDashboardTrends, getRecentTransactions, getUpcomingRenewals, getBudgets } from '@/lib/api'
 import { formatCurrency, formatMonth, formatPercent } from '@/lib/formatters'
 import { Link } from 'react-router-dom'
+import BudgetSummaryWidget from '@/components/BudgetSummaryWidget'
 
 export default function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -28,6 +29,11 @@ export default function Dashboard() {
   const { data: upcomingRenewals } = useQuery({
     queryKey: ['upcoming-renewals'],
     queryFn: () => getUpcomingRenewals(30),
+  })
+
+  const { data: budgets } = useQuery({
+    queryKey: ['budgets', selectedMonth],
+    queryFn: () => getBudgets(true),
   })
 
   const navigateMonth = (direction: number) => {
@@ -71,7 +77,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
         <div className="bg-white border rounded-lg p-4">
           <div className="text-sm text-gray-500">Spent</div>
           <div className="text-2xl font-bold text-red-600">
@@ -98,6 +104,16 @@ export default function Dashboard() {
             {formatCurrency(summary?.net || 0)}
           </div>
         </div>
+
+        <div className="bg-white border rounded-lg p-4">
+          <div className="text-sm text-gray-500">Budgets</div>
+          <div className="text-2xl font-bold">
+            {budgets?.total || 0}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            {budgets?.total > 0 ? 'Active this month' : 'No budgets set'}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -122,6 +138,16 @@ export default function Dashboard() {
               <p className="text-gray-500 text-sm">No expenses this month</p>
             )}
           </div>
+        </div>
+
+        <div className="bg-white border rounded-lg p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold">Budget Progress</h2>
+            <Link to="/budgets" className="text-sm text-blue-600 hover:underline">
+              View All →
+            </Link>
+          </div>
+          <BudgetSummaryWidget month={selectedMonth} />
         </div>
 
         <div className="bg-white border rounded-lg p-4">

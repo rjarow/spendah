@@ -12,6 +12,7 @@ from app.models.import_log import ImportLog, ImportStatus
 from app.models.user_correction import UserCorrection
 from app.models.token_map import TokenMap, TokenType, DateShift
 from app.models.privacy_settings import PrivacySettings, get_or_create_privacy_settings
+from app.models.budget import Budget, BudgetPeriod
 
 __all__ = [
     "Account",
@@ -35,4 +36,6 @@ __all__ = [
     "DateShift",
     "PrivacySettings",
     "get_or_create_privacy_settings",
+    "Budget",
+    "BudgetPeriod",
 ]

@@ -27,3 +27,4 @@ class Category(Base):
     transactions = relationship("Transaction", back_populates="category")
     recurring_groups = relationship("RecurringGroup", back_populates="category")
     user_corrections = relationship("UserCorrection", back_populates="category")
+    budgets = relationship("Budget", back_populates="category")

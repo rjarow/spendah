@@ -4,7 +4,17 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
 
 ## Tasks
 
-- [x] Add Net Worth types and API client methods:
+- [x] Create Net Worth dashboard widget:
+  - Add `frontend/src/components/NetWorthWidget.tsx`:
+    - Compact display: Net worth amount with trend indicator (↑↓)
+    - Mini sparkline or simple +/- change vs last month
+    - "View Details" link to /net-worth page
+    - Assets and liabilities as small secondary numbers
+  - Integrate into `frontend/src/pages/Dashboard.tsx`:
+    - Add widget to dashboard grid (prominent position as key financial health indicator)
+    - Query net worth data alongside existing dashboard queries
+
+- [x] Test the complete net worth flow:
   - Update `frontend/src/types/index.ts`:
     - `NetWorthSummary` interface (total_assets, total_liabilities, net_worth)
     - `NetWorthBreakdown` interface (summary + accounts array with balances)
@@ -16,6 +26,10 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
     - `getNetWorthHistory(startDate, endDate)` - for charting
     - `updateAccountBalance(id, balance)` - update account balance
   - Follow existing API patterns
+  - Fixed API path mismatch (`/networth` instead of `/net-worth`)
+  - Fixed syntax errors in backend import_service.py
+  - Successfully built and deployed containers
+  - API health check verified
 
 - [x] Create Net Worth page with breakdown view:
   - Add `frontend/src/pages/NetWorth.tsx`:

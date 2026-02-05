@@ -198,7 +198,10 @@ def process_import(
                     analyze_transaction_for_alerts(db, transaction)
                 except Exception as e:
                     print(f"Alert analysis failed for transaction: {e}")
+                    pass
                 imported += 1
+            except Exception as e:
+                errors.append(str(e))
 
         db.commit()
 
@@ -229,20 +232,6 @@ def process_import(
             transactions_skipped=skipped,
             errors=errors
         )
-
-    except Exception as e:
-        import_log.status = ImportStatus.FAILED
-        import_log.error_message = str(e)
-        db.commit()
-
-        failed_path = Path(settings.import_failed_path)
-        failed_path.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(file_path), str(failed_path / file_path.name))
-
-        if import_id in PENDING_IMPORTS:
-            del PENDING_IMPORTS[import_id]
-
-        raise
 
     except Exception as e:
         import_log.status = ImportStatus.FAILED
@@ -347,6 +336,7 @@ async def process_import_with_ai(
                     analyze_transaction_for_alerts(db, transaction)
                 except Exception as e:
                     print(f"Alert analysis failed for transaction: {e}")
+                    pass
                 imported += 1
 
             except Exception as e:

@@ -475,17 +475,17 @@ export const getBudgetProgress = async (id: string, date?: string) => {
 }
 
 export const getNetWorth = async (): Promise<NetWorthSummary> => {
-  const response = await api.get<NetWorthSummary>('/net-worth')
+  const response = await api.get<NetWorthSummary>('/networth')
   return response.data
 }
 
 export const getNetWorthBreakdown = async (): Promise<NetWorthBreakdown> => {
-  const response = await api.get<NetWorthBreakdown>('/net-worth/breakdown')
+  const response = await api.get<NetWorthBreakdown>('/networth/breakdown')
   return response.data
 }
 
 export const getNetWorthHistory = async (startDate: string, endDate: string): Promise<NetWorthHistoryPoint[]> => {
-  const response = await api.get<NetWorthHistoryPoint[]>('/net-worth/history', {
+  const response = await api.get<NetWorthHistoryPoint[]>('/networth/history', {
     params: { start_date: startDate, end_date: endDate }
   })
   return response.data

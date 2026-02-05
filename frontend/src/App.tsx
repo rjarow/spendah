@@ -9,6 +9,7 @@ import Accounts from './pages/Accounts'
 import Import from './pages/Import'
 import Insights from './pages/Insights'
 import Settings from './pages/Settings'
+import NetWorth from './pages/NetWorth'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +33,7 @@ function App() {
             <Route path="accounts" element={<Accounts />} />
             <Route path="import" element={<Import />} />
             <Route path="insights" element={<Insights />} />
+            <Route path="net-worth" element={<NetWorth />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

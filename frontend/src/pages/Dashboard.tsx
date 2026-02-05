@@ -4,6 +4,7 @@ import { getDashboardSummary, getDashboardTrends, getRecentTransactions, getUpco
 import { formatCurrency, formatMonth, formatPercent } from '@/lib/formatters'
 import { Link } from 'react-router-dom'
 import BudgetSummaryWidget from '@/components/BudgetSummaryWidget'
+import NetWorthWidget from '@/components/NetWorthWidget'
 
 export default function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -34,6 +35,11 @@ export default function Dashboard() {
   const { data: budgets } = useQuery({
     queryKey: ['budgets', selectedMonth],
     queryFn: () => getBudgets(true),
+  })
+
+  const { data: netWorth } = useQuery({
+    queryKey: ['net-worth'],
+    queryFn: () => import('@/lib/api').then((m) => m.getNetWorth()),
   })
 
   const navigateMonth = (direction: number) => {
@@ -98,10 +104,20 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-gray-500">Net</div>
-          <div className={`text-2xl font-bold ${(summary?.net || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {formatCurrency(summary?.net || 0)}
+        <div className="bg-white border rounded-lg p-4 lg:col-span-2">
+          <div className="text-sm text-gray-500">Net Worth</div>
+          <div className="text-3xl font-bold">
+            {formatCurrency(netWorth?.net_worth || 0)}
+          </div>
+          <div className="grid grid-cols-2 gap-4 mt-2 text-sm">
+            <div>
+              <div className="text-gray-500">Assets</div>
+              <div className="font-medium text-green-600">{formatCurrency(netWorth?.total_assets || 0)}</div>
+            </div>
+            <div>
+              <div className="text-gray-500">Liabilities</div>
+              <div className="font-medium text-red-600">{formatCurrency(netWorth?.total_liabilities || 0)}</div>
+            </div>
           </div>
         </div>
 

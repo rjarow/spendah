@@ -33,6 +33,31 @@ export interface AccountUpdate {
   name?: string
   type?: AccountType
   is_active?: boolean
+  current_balance?: number
+  balance_updated_at?: string
+}
+
+export interface NetWorthSummary {
+  total_assets: number
+  total_liabilities: number
+  net_worth: number
+}
+
+export interface AccountWithBalance extends Account {
+  current_balance: number
+  balance_updated_at: string
+}
+
+export interface NetWorthBreakdown {
+  summary: NetWorthSummary
+  accounts: AccountWithBalance[]
+}
+
+export interface NetWorthHistoryPoint {
+  date: string
+  net_worth: number
+  total_assets: number
+  total_liabilities: number
 }
 
 export interface CategoryCreate {

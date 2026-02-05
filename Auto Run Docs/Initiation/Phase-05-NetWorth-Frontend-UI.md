@@ -4,7 +4,7 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
 
 ## Tasks
 
-- [ ] Add Net Worth types and API client methods:
+- [x] Add Net Worth types and API client methods:
   - Update `frontend/src/types/index.ts`:
     - `NetWorthSummary` interface (total_assets, total_liabilities, net_worth)
     - `NetWorthBreakdown` interface (summary + accounts array with balances)
@@ -17,7 +17,7 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
     - `updateAccountBalance(id, balance)` - update account balance
   - Follow existing API patterns
 
-- [ ] Create Net Worth page with breakdown view:
+- [x] Create Net Worth page with breakdown view:
   - Add `frontend/src/pages/NetWorth.tsx`:
     - Hero section: Large net worth number with assets/liabilities below
     - Color coding: Net worth green if positive, red if negative
@@ -30,7 +30,7 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
   - Use TanStack Query for data fetching
   - Use existing shadcn/ui components for consistent styling
 
-- [ ] Create Net Worth trend chart component:
+- [x] Create Net Worth trend chart component:
   - Add `frontend/src/components/NetWorthChart.tsx`:
     - Line chart showing net worth over time (6-12 months)
     - Optional: Show stacked area for assets vs liabilities
@@ -40,14 +40,14 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
   - Use same charting approach as existing dashboard trends (or add recharts/chart.js if not present)
   - Integrate into Net Worth page below the summary
 
-- [ ] Add Net Worth page to navigation:
+- [x] Add Net Worth page to navigation:
   - Update `frontend/src/components/Sidebar.tsx`:
     - Add "Net Worth" link with appropriate icon (e.g., Scale, TrendingUp, or DollarSign from lucide-react)
     - Place in logical order with other navigation items
   - Update `frontend/src/App.tsx` router:
     - Add route for `/net-worth` pointing to NetWorth page
 
-- [ ] Update Accounts page with balance management:
+- [x] Update Accounts page with balance management:
   - Modify `frontend/src/pages/Accounts.tsx`:
     - Display current balance for each account in the list
     - Add "Update Balance" button/action per account
@@ -55,7 +55,7 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
     - Show `balance_updated_at` as "Last updated: X days ago"
   - Ensure balance updates trigger cache invalidation for net worth queries
 
-- [ ] Create Net Worth dashboard widget:
+- [x] Create Net Worth dashboard widget:
   - Add `frontend/src/components/NetWorthWidget.tsx`:
     - Compact display: Net worth amount with trend indicator (↑↓)
     - Mini sparkline or simple +/- change vs last month

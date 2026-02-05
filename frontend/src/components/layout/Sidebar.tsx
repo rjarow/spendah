@@ -8,6 +8,7 @@ import {
   LineChart,
   Settings,
   Target,
+  DollarSign,
 } from 'lucide-react'
 
 const navigation = [
@@ -16,6 +17,7 @@ const navigation = [
   { name: 'Recurring', href: '/recurring', icon: Repeat },
   { name: 'Budgets', href: '/budgets', icon: Target },
   { name: 'Accounts', href: '/accounts', icon: Wallet },
+  { name: 'Net Worth', href: '/net-worth', icon: DollarSign },
   { name: 'Import', href: '/import', icon: Upload },
   { name: 'Insights', href: '/insights', icon: LineChart },
   { name: 'Settings', href: '/settings', icon: Settings },

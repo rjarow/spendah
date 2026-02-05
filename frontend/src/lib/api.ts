@@ -26,6 +26,9 @@ import type {
   PrivacySettings,
   ProviderPrivacyConfig,
   TokenStats,
+  NetWorthSummary,
+  NetWorthBreakdown,
+  NetWorthHistoryPoint,
 } from '@/types'
 
 const API_PORT = import.meta.env.VITE_API_PORT || '8000'
@@ -468,6 +471,30 @@ export const getBudgetProgress = async (id: string, date?: string) => {
     ? `/budgets/${id}/progress?date=${date}`
     : `/budgets/${id}/progress`
   const response = await api.get<BudgetProgress>(url)
+  return response.data
+}
+
+export const getNetWorth = async (): Promise<NetWorthSummary> => {
+  const response = await api.get<NetWorthSummary>('/net-worth')
+  return response.data
+}
+
+export const getNetWorthBreakdown = async (): Promise<NetWorthBreakdown> => {
+  const response = await api.get<NetWorthBreakdown>('/net-worth/breakdown')
+  return response.data
+}
+
+export const getNetWorthHistory = async (startDate: string, endDate: string): Promise<NetWorthHistoryPoint[]> => {
+  const response = await api.get<NetWorthHistoryPoint[]>('/net-worth/history', {
+    params: { start_date: startDate, end_date: endDate }
+  })
+  return response.data
+}
+
+export const updateAccountBalance = async (id: string, balance: number): Promise<Account> => {
+  const response = await api.patch<Account>(`/accounts/${id}`, {
+    current_balance: balance
+  })
   return response.data
 }
 

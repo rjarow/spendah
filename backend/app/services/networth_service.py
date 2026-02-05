@@ -38,7 +38,11 @@ def get_current_networth(db: Session) -> Decimal:
         if account.is_asset:
             net_worth += account.current_balance
         else:
-            net_worth -= account.current_balance
+            # Liabilities should be subtracted as positive value
+            if account.current_balance < 0:
+                net_worth -= abs(account.current_balance)
+            else:
+                net_worth -= account.current_balance
 
     return net_worth
 
@@ -68,7 +72,11 @@ def get_networth_breakdown(db: Session) -> Dict[str, Any]:
         if account.is_asset:
             total_assets += account.current_balance
         else:
-            total_liabilities += account.current_balance
+            # Liabilities should be added as positive value
+            if account.current_balance < 0:
+                total_liabilities += abs(account.current_balance)
+            else:
+                total_liabilities += account.current_balance
 
         accounts_data.append(account_info)
 

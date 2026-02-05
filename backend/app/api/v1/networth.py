@@ -29,11 +29,8 @@ async def get_current_networth_summary(db: Session = Depends(get_db)):
 
     Returns total assets, total liabilities, and current net worth.
     """
-    return {
-        "total_assets": float(get_current_networth(db)),
-        "total_liabilities": Decimal("0.00"),
-        "net_worth": float(get_current_networth(db))
-    }
+    breakdown = get_networth_breakdown(db)
+    return breakdown
 
 
 @router.get("/networth/breakdown")

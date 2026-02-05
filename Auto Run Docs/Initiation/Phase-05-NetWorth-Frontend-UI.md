@@ -30,6 +30,9 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
   - Fixed syntax errors in backend import_service.py
   - Successfully built and deployed containers
   - API health check verified
+  - Fixed net worth calculation bug in `get_current_networth` and `get_networth_breakdown` functions
+  - Net worth now correctly calculates assets minus liabilities (handling negative balances for liabilities properly)
+  - Verified balance updates trigger correct net worth recalculation
 
 - [x] Create Net Worth page with breakdown view:
   - Add `frontend/src/pages/NetWorth.tsx`:
@@ -79,7 +82,7 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
     - Add widget to dashboard grid (prominent position as key financial health indicator)
     - Query net worth data alongside existing dashboard queries
 
-- [ ] Test the complete net worth flow:
+- [x] Test the complete net worth flow:
   - Run the app with `docker-compose up -d --build`
   - Set balances on multiple accounts (checking, savings, credit card)
   - Verify net worth calculates correctly (assets - liabilities)
@@ -87,3 +90,5 @@ This phase builds the frontend interface for net worth tracking: a dedicated Net
   - Check Net Worth page shows breakdown correctly
   - Verify dashboard widget displays accurate summary
   - Test historical chart (may need seed data or wait for snapshots)
+  - Fixed net worth calculation bug in networth_service.py where liabilities with negative balances were being added instead of subtracted
+  - Updated networth endpoint to use the breakdown function instead of hardcoded liabilities

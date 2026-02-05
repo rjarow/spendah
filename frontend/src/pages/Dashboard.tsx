@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getDashboardSummary, getDashboardTrends, getRecentTransactions, getUpcomingRenewals, getBudgets } from '@/lib/api'
+import { getDashboardSummary, getDashboardTrends, getRecentTransactions, getUpcomingRenewals, getBudgets, getNetWorth } from '@/lib/api'
 import { formatCurrency, formatMonth, formatPercent } from '@/lib/formatters'
 import { Link } from 'react-router-dom'
 import BudgetSummaryWidget from '@/components/BudgetSummaryWidget'
 import NetWorthWidget from '@/components/NetWorthWidget'
+import FinancialHealthScore from '@/components/FinancialHealthScore'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 export default function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -39,8 +41,17 @@ export default function Dashboard() {
 
   const { data: netWorth } = useQuery({
     queryKey: ['net-worth'],
-    queryFn: () => import('@/lib/api').then((m) => m.getNetWorth()),
+    queryFn: () => getNetWorth(),
   })
+
+  const chartData = Array.from({ length: 6 }, (_, i) => {
+    const date = new Date()
+    date.setMonth(date.getMonth() - i)
+    return {
+      date: date.toLocaleDateString('en-US', { month: 'short' }),
+      netWorth: 0,
+    }
+  }).reverse()
 
   const navigateMonth = (direction: number) => {
     const [year, month] = selectedMonth.split('-').map(Number)
@@ -64,7 +75,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <div className="flex items-center gap-2">
           <button
@@ -83,7 +94,69 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-white border rounded-lg p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Net Worth</h2>
+            <Link to="/net-worth" className="text-sm text-blue-600 hover:underline">
+              View Details →
+            </Link>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <div className="text-sm text-gray-500">Net Worth</div>
+              <div className={`text-2xl font-bold ${netWorth?.net_worth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(netWorth?.net_worth || 0)}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Assets</div>
+              <div className="text-lg font-bold text-green-600">{formatCurrency(netWorth?.total_assets || 0)}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Liabilities</div>
+              <div className="text-lg font-bold text-red-600">{formatCurrency(netWorth?.total_liabilities || 0)}</div>
+            </div>
+          </div>
+          <div className="mt-4 h-24">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={netWorth?.net_worth >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor={netWorth?.net_worth >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb"/>
+                <XAxis dataKey="date" hide tick={{ fontSize: 10 }}/>
+                <YAxis hide domain={['dataMin', 'dataMax']} tick={{ fontSize: 10 }}/>
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-white border rounded p-2 shadow-sm">
+                          <div className="text-sm font-medium">{payload[0].payload.date}</div>
+                          <div className="text-sm font-bold" style={{ color: netWorth?.net_worth >= 0 ? '#22c55e' : '#ef4444' }}>
+                            {formatCurrency(payload[0].value)}
+                          </div>
+                        </div>
+                      )
+                    }
+                    return null
+                  }}
+                />
+                <Area type="monotone" dataKey="netWorth" stroke={netWorth?.net_worth >= 0 ? '#22c55e' : '#ef4444'} strokeWidth={2} fillOpacity={1} fill="url(#colorNetWorth)"/>
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white border rounded-lg p-4">
+          <FinancialHealthScore month={selectedMonth} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white border rounded-lg p-4">
           <div className="text-sm text-gray-500">Spent</div>
           <div className="text-2xl font-bold text-red-600">
@@ -104,23 +177,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white border rounded-lg p-4 lg:col-span-2">
-          <div className="text-sm text-gray-500">Net Worth</div>
-          <div className="text-3xl font-bold">
-            {formatCurrency(netWorth?.net_worth || 0)}
-          </div>
-          <div className="grid grid-cols-2 gap-4 mt-2 text-sm">
-            <div>
-              <div className="text-gray-500">Assets</div>
-              <div className="font-medium text-green-600">{formatCurrency(netWorth?.total_assets || 0)}</div>
-            </div>
-            <div>
-              <div className="text-gray-500">Liabilities</div>
-              <div className="font-medium text-red-600">{formatCurrency(netWorth?.total_liabilities || 0)}</div>
-            </div>
-          </div>
-        </div>
-
         <div className="bg-white border rounded-lg p-4">
           <div className="text-sm text-gray-500">Budgets</div>
           <div className="text-2xl font-bold">
@@ -132,9 +188,14 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white border rounded-lg p-4">
-          <h2 className="text-lg font-semibold mb-4">Spending by Category</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold">Spending by Category</h2>
+            <Link to="/transactions" className="text-sm text-blue-600 hover:underline">
+              View all →
+            </Link>
+          </div>
           <div className="space-y-3">
             {summary?.by_category?.slice(0, 8).map((cat) => (
               <div key={cat.category_id}>
@@ -165,7 +226,9 @@ export default function Dashboard() {
           </div>
           <BudgetSummaryWidget month={selectedMonth} />
         </div>
+      </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white border rounded-lg p-4">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Recent Transactions</h2>
@@ -190,27 +253,37 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-      </div>
 
-      <div className="bg-white border rounded-lg p-4">
-        <h2 className="text-lg font-semibold mb-4">Monthly Trends</h2>
-        <div className="flex items-end gap-2 h-40">
-          {trends?.map((month) => {
-            const maxExpense = Math.max(...(trends?.map((t) => t.expenses) || [1]))
-            const height = maxExpense > 0 ? (month.expenses / maxExpense) * 100 : 0
-            return (
-              <div key={month.month} className="flex-1 flex flex-col items-center">
-                <div
-                  className="w-full bg-red-200 rounded-t"
-                  style={{ height: `${height}%`, minHeight: month.expenses > 0 ? '4px' : '0' }}
-                  title={formatCurrency(month.expenses)}
-                />
-                <div className="text-xs text-gray-500 mt-1">
-                  {month.month.split('-')[1]}
+        <div className="bg-white border rounded-lg p-4">
+          <h2 className="text-lg font-semibold mb-4">Upcoming Renewals</h2>
+          <div className="space-y-3">
+            {upcomingRenewals?.renewals?.slice(0, 5).map((renewal) => (
+              <div key={renewal.recurring_group_id} className="flex justify-between items-center">
+                <div>
+                  <div className="text-sm font-medium">{renewal.merchant}</div>
+                  <div className="text-xs text-gray-500">
+                    {renewal.days_until === 0 ? 'Today' :
+                     renewal.days_until === 1 ? 'Tomorrow' :
+                     `In ${renewal.days_until} days`}
+                  </div>
+                </div>
+                <div className="text-sm font-medium text-red-600">
+                  {formatCurrency(renewal.amount)}
                 </div>
               </div>
-            )
-          })}
+            ))}
+            {(!upcomingRenewals?.renewals || upcomingRenewals.renewals.length === 0) && (
+              <p className="text-sm text-gray-500">No upcoming renewals in next 30 days</p>
+            )}
+          </div>
+          {upcomingRenewals?.total_upcoming_30_days > 0 && (
+            <div className="mt-3 pt-3 border-t text-sm">
+              <span className="text-gray-500">Total next 30 days:</span>
+              <span className="font-medium text-red-600 ml-2">
+                {formatCurrency(upcomingRenewals.total_upcoming_30_days)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

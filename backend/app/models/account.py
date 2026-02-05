@@ -14,9 +14,12 @@ from app.database import Base
 
 class AccountType(str, enum.Enum):
     """Account type enumeration."""
-    credit = "credit"
-    debit = "debit"
-    bank = "bank"
+    checking = "checking"
+    savings = "savings"
+    credit_card = "credit_card"
+    investment = "investment"
+    loan = "loan"
+    mortgage = "mortgage"
     cash = "cash"
     other = "other"
 
@@ -43,5 +46,10 @@ class Account(Base):
     @property
     def is_asset(self) -> bool:
         """Determine if account is an asset (positive in net worth)."""
-        asset_types = {AccountType.bank, AccountType.debit, AccountType.cash}
+        asset_types = {
+            AccountType.checking,
+            AccountType.savings,
+            AccountType.investment,
+            AccountType.cash
+        }
         return self.account_type in asset_types

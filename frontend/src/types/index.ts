@@ -2,7 +2,7 @@
  * TypeScript types for the application.
  */
 
-export type AccountType = "credit" | "debit" | "bank" | "cash" | "other"
+export type AccountType = "checking" | "savings" | "credit_card" | "investment" | "loan" | "mortgage" | "cash" | "other"
 
 export interface Account {
   id: string

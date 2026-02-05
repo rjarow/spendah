@@ -7,6 +7,7 @@ from app.models import Category, Account, BalanceHistory
 from app.models.account import AccountType
 from datetime import date, datetime
 import uuid
+from decimal import Decimal
 
 
 def seed_categories():
@@ -184,20 +185,33 @@ def seed_account_balances():
         for account in accounts:
             if account.is_active:
                 # Set different balances based on account type
-                if account.account_type == AccountType.bank:
-                    account.current_balance = 2500.00
+                account_type_value = account.account_type.value
+                if account_type_value == "checking":
+                    account.current_balance = Decimal("2500.00")
                     account.balance_updated_at = datetime.utcnow()
                     print(f"  {account.name}: $2500.00")
-                elif account.account_type == AccountType.credit:
-                    account.current_balance = -1500.00
+                elif account_type_value == "savings":
+                    account.current_balance = Decimal("3000.00")
+                    account.balance_updated_at = datetime.utcnow()
+                    print(f"  {account.name}: $3000.00")
+                elif account_type_value == "credit_card":
+                    account.current_balance = Decimal("-1500.00")
                     account.balance_updated_at = datetime.utcnow()
                     print(f"  {account.name}: -$1500.00")
-                elif account.account_type == AccountType.cash:
-                    account.current_balance = 500.00
+                elif account_type_value == "cash":
+                    account.current_balance = Decimal("500.00")
                     account.balance_updated_at = datetime.utcnow()
                     print(f"  {account.name}: $500.00")
+                elif account_type_value == "investment":
+                    account.current_balance = Decimal("10000.00")
+                    account.balance_updated_at = datetime.utcnow()
+                    print(f"  {account.name}: $10000.00")
+                elif account_type_value in ["loan", "mortgage"]:
+                    account.current_balance = Decimal("-8000.00")
+                    account.balance_updated_at = datetime.utcnow()
+                    print(f"  {account.name}: -$8000.00")
                 else:
-                    account.current_balance = 1000.00
+                    account.current_balance = Decimal("1000.00")
                     account.balance_updated_at = datetime.utcnow()
                     print(f"  {account.name}: $1000.00")
 
@@ -212,10 +226,13 @@ def seed_account_balances():
 
                 # Vary the balance slightly for each snapshot
                 balance_offset = (5 - i) * 50
-                if account.account_type == AccountType.credit:
-                    balance = -(1500.00 + balance_offset)
+                account_type_value = account.account_type.value
+                if account_type_value == "credit_card":
+                    balance = Decimal("-1500.00") - balance_offset
+                elif account_type_value == "checking":
+                    balance = Decimal("2500.00") + balance_offset
                 else:
-                    balance = (2500.00 + balance_offset) if account.account_type == AccountType.bank else (500.00 + balance_offset)
+                    balance = Decimal("500.00") + balance_offset
 
                 snapshot = BalanceHistory(
                     account_id=account.id,

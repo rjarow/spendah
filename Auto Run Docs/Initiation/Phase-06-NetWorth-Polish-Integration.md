@@ -4,7 +4,25 @@ This phase completes the net worth feature with automatic balance inference from
 
 ## Tasks
 
-- [ ] Add automatic balance calculation from transactions:
+- [x] Add automatic balance calculation from transactions:
+
+## Summary of Implementation
+
+Created `backend/app/services/balance_inference.py` with:
+- `calculate_balance_from_transactions(db, account_id)` - sums all transactions for an account, handling both asset accounts (starting balance + transactions) and liability accounts (sum of transactions = amount owed)
+- `get_balance_difference(db, account_id)` - compares manual balance against calculated balance
+- `get_accounts_with_stale_balances(db)` - returns all accounts where manual balance differs from calculated
+- `infer_balance_from_transactions(db, account_id)` - updates account with calculated balance
+
+Updated `backend/app/services/networth_service.py`:
+- Modified `get_networth_breakdown()` to include `calculated_balance` and `is_stale` fields in account responses
+
+Updated `backend/app/schemas/account.py`:
+- Added `calculated_balance` and `is_stale` fields to `AccountResponse` schema
+
+Added comprehensive test suite with 11 new tests in `tests/test_networth.py` covering all balance inference functionality
+
+- [x] Expand account types for better categorization:
   - Create `backend/app/services/balance_inference.py`:
     - `calculate_balance_from_transactions(db, account_id)` - sums all transactions for an account
     - This gives a "calculated balance" that can supplement manual balance entry
@@ -15,7 +33,7 @@ This phase completes the net worth feature with automatic balance inference from
     - Show both manual `current_balance` and `calculated_balance` when different
     - Flag accounts where manual balance is stale vs transaction activity
 
-- [ ] Expand account types for better categorization:
+- [x] Expand account types for better categorization:
   - Update `backend/app/models/account.py`:
     - Expand `AccountType` enum: checking, savings, credit_card, investment, loan, mortgage, cash, other
     - Or add `account_subtype` field for more granular classification
@@ -26,18 +44,18 @@ This phase completes the net worth feature with automatic balance inference from
     - Assets: checking, savings, investment, cash
     - Liabilities: credit_card, loan, mortgage
 
-- [ ] Create unified financial dashboard view:
-  - Update `frontend/src/pages/Dashboard.tsx`:
-    - Reorganize layout to show complete financial picture:
-      - Net Worth widget (top prominence)
-      - Budget status widget (how are you tracking?)
-      - Monthly spending summary (existing)
-      - Recent transactions (existing)
-      - Upcoming renewals (existing)
-    - Ensure widgets are responsive and work on mobile
-  - Consider adding a "Financial Health Score" concept:
-    - Simple calculation: are budgets on track? Is net worth growing? Are subscriptions under control?
-    - Display as a simple indicator or score
+- [x] Create unified financial dashboard view:
+   - Update `frontend/src/pages/Dashboard.tsx`:
+     - Reorganize layout to show complete financial picture:
+       - Net Worth widget (top prominence)
+       - Budget status widget (how are you tracking?)
+       - Monthly spending summary (existing)
+       - Recent transactions (existing)
+       - Upcoming renewals (existing)
+     - Ensure widgets are responsive and work on mobile
+   - Consider adding a "Financial Health Score" concept:
+     - Simple calculation: are budgets on track? Is net worth growing? Are subscriptions under control?
+     - Display as a simple indicator or score
 
 - [ ] Add balance import from transaction files:
   - Update import flow in `backend/app/services/` (wherever OFX import lives):
@@ -78,3 +96,78 @@ This phase completes the net worth feature with automatic balance inference from
     8. Check alerts for any budget warnings
   - Fix any issues discovered during testing
   - Verify Docker deployment works: `docker-compose down && docker-compose up -d --build`
+
+## Summary of Implementation
+
+### Unified Financial Dashboard
+
+Created unified financial dashboard with:
+
+1. **Financial Health Score Component** (`frontend/src/components/FinancialHealthScore.tsx`):
+   - Calculates composite score (0-100) based on:
+     - Budget health (40%): percentage of budgets on track
+     - Net worth trend (30%): whether net worth is growing
+     - Subscription control (20%): monthly renewal costs under control
+     - Subscription management (10%): additional indicators
+   - Visual circular progress indicator with color-coded score
+   - Breakdown of individual metrics with icons
+   - Next steps guidance for improving score
+
+2. **Reorganized Dashboard Layout** (`frontend/src/pages/Dashboard.tsx`):
+   - Top section: Net Worth widget with prominence, showing assets, liabilities, and trend chart
+   - Second section: Financial Health Score widget alongside net worth overview
+   - Third section: Key metrics (Spent, Income, Budgets) in responsive grid
+   - Fourth section: Spending by Category and Budget Progress widgets
+   - Fifth section: Recent Transactions and Upcoming Renewals widgets
+   - Fully responsive design with mobile-first approach using Tailwind grid system
+   - Smooth scrolling and organized visual hierarchy
+
+3. **Responsive Design Improvements**:
+   - Mobile: Single column layout with stacked widgets
+   - Tablet: 2-column layouts where appropriate
+   - Desktop: Multi-column layouts with optimal spacing
+   - Chart resizing with ResponsiveContainer for various screen sizes
+   - Touch-friendly button sizes and spacing
+
+4. **Features**:
+   - Integrated Net Worth widget with trend visualization
+   - Financial Health Score calculation and display
+   - Budget progress monitoring with visual indicators
+   - Spending analytics by category with progress bars
+   - Real-time transaction and renewal monitoring
+   - Month navigation controls for time-based views
+
+## Summary of Implementation
+
+Expanded account types for better categorization by:
+
+1. **Backend Model Updates**:
+   - Updated `backend/app/models/account.py`:
+     - Expanded `AccountType` enum to include: checking, savings, credit_card, investment, loan, mortgage, cash, other
+     - Updated `is_asset` property to categorize correctly:
+       - Assets: checking, savings, investment, cash
+       - Liabilities: credit_card, loan, mortgage
+   - Updated `backend/app/seed.py` to support new account types with appropriate default balances
+
+2. **Frontend Updates**:
+   - Updated `frontend/src/types/index.ts` with new account type values
+   - Created `frontend/src/components/accounts/CreateAccountModal.tsx` for account creation
+   - Created UI components (Input, Label, Textarea) in `frontend/src/components/ui/`
+   - Updated `frontend/src/pages/Accounts.tsx` to include create account functionality
+   - Updated account type labels for better categorization
+
+3. **Database Migration**:
+   - Created migration `85298a57822f_expand_account_types.py`
+   - Migrated existing data from old types (bank, credit, debit) to new types (checking, credit_card, savings)
+   - Successfully ran migration
+
+4. **API Endpoints**:
+   - No changes needed - existing API endpoints automatically support new types
+   - Account creation, listing, and update endpoints work with new account types
+
+## Known Changes
+
+- Old account types (bank, credit, debit) are automatically mapped to new types (checking, credit_card, savings)
+- All existing data is preserved and migrated during the upgrade
+- Frontend can now create accounts with all 8 account type options
+- Default balances are suggested based on account type when creating accounts

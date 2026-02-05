@@ -54,18 +54,34 @@ def get_networth_breakdown(db: Session) -> Dict[str, Any]:
     Returns:
         Dictionary with total_assets, total_liabilities, net_worth, and list of accounts
     """
+    from app.services.balance_inference import get_balance_difference, get_accounts_with_stale_balances
+
     accounts = db.query(Account).filter(Account.is_active == True).all()
 
     total_assets = Decimal("0.00")
     total_liabilities = Decimal("0.00")
     accounts_data = []
 
+    stale_accounts = get_accounts_with_stale_balances(db)
+
     for account in accounts:
+        calculated_balance = None
+        is_stale = False
+
+        try:
+            diff_info = get_balance_difference(db, str(account.id))
+            calculated_balance = diff_info["calculated_balance"]
+            is_stale = diff_info["is_stale"]
+        except Exception:
+            pass
+
         account_info = {
             "id": str(account.id),
             "name": account.name,
             "account_type": account.account_type.value,
             "current_balance": float(account.current_balance) if account.current_balance is not None else 0.0,
+            "calculated_balance": calculated_balance,
+            "is_stale": is_stale,
             "is_asset": account.is_asset
         }
 

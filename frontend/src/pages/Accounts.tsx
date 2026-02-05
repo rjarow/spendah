@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getAccounts, updateAccountBalance } from '@/lib/api'
+import { getAccounts, updateAccountBalance, createAccount } from '@/lib/api'
 import { formatCurrency } from '@/lib/formatters'
-import { X, Check, AlertCircle } from 'lucide-react'
+import { X, Check, AlertCircle, Plus } from 'lucide-react'
+import CreateAccountModal from '@/components/accounts/CreateAccountModal'
 
 interface UpdateBalanceModalProps {
   account: {
@@ -25,6 +26,13 @@ function UpdateBalanceModal({ account, isOpen, onClose, onSuccess }: UpdateBalan
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       onSuccess()
+    }
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; type: string }) => createAccount(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
     }
   })
 
@@ -141,6 +149,7 @@ function UpdateBalanceModal({ account, isOpen, onClose, onSuccess }: UpdateBalan
 
 export default function Accounts() {
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [selectedAccount, setSelectedAccount] = useState<{
     id: string
     name: string
@@ -211,9 +220,12 @@ export default function Accounts() {
   )
 
   const typeLabels: Record<string, string> = {
-    bank: 'Bank Accounts',
-    credit: 'Credit Cards',
-    debit: 'Debit Cards',
+    checking: 'Checking Accounts',
+    savings: 'Savings Accounts',
+    credit_card: 'Credit Cards',
+    investment: 'Investment Accounts',
+    loan: 'Loans',
+    mortgage: 'Mortgages',
     cash: 'Cash',
     other: 'Other',
   }
@@ -222,6 +234,13 @@ export default function Accounts() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Accounts</h1>
+        <button
+          onClick={() => setIsCreateModalOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+        >
+          <Plus className="h-4 w-4" />
+          Create Account
+        </button>
       </div>
 
       <div className="space-y-6">
@@ -282,6 +301,14 @@ export default function Accounts() {
           isOpen={isUpdateModalOpen}
           onClose={handleBalanceUpdated}
           onSuccess={handleBalanceUpdated}
+        />
+      )}
+
+      {isCreateModalOpen && (
+        <CreateAccountModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          onSuccess={() => setIsCreateModalOpen(false)}
         />
       )}
     </div>

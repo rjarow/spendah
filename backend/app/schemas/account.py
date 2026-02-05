@@ -36,6 +36,8 @@ class AccountResponse(AccountBase):
     created_at: datetime
     current_balance: Optional[Decimal] = None
     balance_updated_at: Optional[datetime] = None
+    calculated_balance: Optional[float] = None
+    is_stale: bool = False
 
     class Config:
         from_attributes = True

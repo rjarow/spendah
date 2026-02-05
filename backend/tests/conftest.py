@@ -66,7 +66,7 @@ def client(db_session):
 def sample_account(db_session):
     """Create a sample account."""
     account = Account(id=str(uuid.uuid4()), name="Test Checking")
-    account.account_type = AccountType.bank
+    account.account_type = AccountType.checking
     account.is_active = True
 
     db_session.add(account)

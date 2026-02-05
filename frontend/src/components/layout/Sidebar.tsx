@@ -7,12 +7,14 @@ import {
   Upload,
   LineChart,
   Settings,
+  Target,
 } from 'lucide-react'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Transactions', href: '/transactions', icon: Receipt },
   { name: 'Recurring', href: '/recurring', icon: Repeat },
+  { name: 'Budgets', href: '/budgets', icon: Target },
   { name: 'Accounts', href: '/accounts', icon: Wallet },
   { name: 'Import', href: '/import', icon: Upload },
   { name: 'Insights', href: '/insights', icon: LineChart },

@@ -3,6 +3,7 @@ Account Pydantic schemas for API validation.
 """
 
 from pydantic import BaseModel, Field
+from decimal import Decimal
 from datetime import datetime
 from typing import Optional
 from app.models.account import AccountType
@@ -24,6 +25,7 @@ class AccountUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     account_type: Optional[AccountType] = None
     is_active: Optional[bool] = None
+    current_balance: Optional[Decimal] = None
 
 
 class AccountResponse(AccountBase):
@@ -32,6 +34,8 @@ class AccountResponse(AccountBase):
     learned_format_id: Optional[str] = None
     is_active: bool
     created_at: datetime
+    current_balance: Optional[Decimal] = None
+    balance_updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

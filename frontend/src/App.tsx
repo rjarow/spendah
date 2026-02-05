@@ -4,6 +4,7 @@ import Layout from './components/layout/Layout'
 import Dashboard from './pages/Dashboard'
 import Transactions from './pages/Transactions'
 import Recurring from './pages/Recurring'
+import Budgets from './pages/Budgets'
 import Accounts from './pages/Accounts'
 import Import from './pages/Import'
 import Insights from './pages/Insights'
@@ -27,6 +28,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="transactions" element={<Transactions />} />
             <Route path="recurring" element={<Recurring />} />
+            <Route path="budgets" element={<Budgets />} />
             <Route path="accounts" element={<Accounts />} />
             <Route path="import" element={<Import />} />
             <Route path="insights" element={<Insights />} />

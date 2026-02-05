@@ -3,6 +3,7 @@ Database models package.
 """
 
 from app.models.account import Account, AccountType
+from app.models.balance_history import BalanceHistory
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.recurring import RecurringGroup, Frequency
@@ -17,6 +18,7 @@ from app.models.budget import Budget, BudgetPeriod
 __all__ = [
     "Account",
     "AccountType",
+    "BalanceHistory",
     "Category",
     "Transaction",
     "RecurringGroup",

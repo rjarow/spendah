@@ -18,6 +18,8 @@ class AlertType(str, enum.Enum):
     subscription_review = "subscription_review"
     unusual_merchant = "unusual_merchant"
     annual_charge = "annual_charge"
+    budget_warning = "budget_warning"
+    budget_exceeded = "budget_exceeded"
 
 
 class Severity(str, enum.Enum):
@@ -39,6 +41,7 @@ class Alert(Base):
     description = Column(Text, nullable=False)
     transaction_id = Column(String(36), ForeignKey("transactions.id"), nullable=True)
     recurring_group_id = Column(String(36), ForeignKey("recurring_groups.id"), nullable=True)
+    budget_id = Column(String(36), ForeignKey("budgets.id"), nullable=True)
     alert_metadata = Column(JSON, nullable=True)  # Flexible data
     is_read = Column(Boolean, default=False, nullable=False, index=True)
     is_dismissed = Column(Boolean, default=False, nullable=False)
@@ -62,6 +65,8 @@ class AlertSettings(Base):
     subscription_review_days = Column(Integer, default=90, nullable=False)
     last_subscription_review = Column(DateTime, nullable=True)
     annual_charge_warning_days = Column(Integer, default=14, nullable=False)
+    budget_warning_threshold = Column(Integer, default=80, nullable=False)
+    budget_alerts_enabled = Column(Boolean, default=True, nullable=False)
     alerts_enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

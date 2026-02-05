@@ -31,6 +31,8 @@ def get_or_create_settings(db: Session) -> AlertSettings:
             id=str(uuid.uuid4()),
             large_purchase_multiplier=Decimal("3.0"),
             unusual_merchant_threshold=Decimal("200.0"),
+            budget_warning_threshold=80,
+            budget_alerts_enabled=True,
             alerts_enabled=True,
         )
         db.add(settings)

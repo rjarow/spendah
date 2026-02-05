@@ -200,9 +200,6 @@ def process_import(
                     print(f"Alert analysis failed for transaction: {e}")
                 imported += 1
 
-            except Exception as e:
-                errors.append(str(e))
-
         db.commit()
 
         import_log.status = ImportStatus.COMPLETED
@@ -218,6 +215,12 @@ def process_import(
 
         del PENDING_IMPORTS[import_id]
 
+        # Check budget alerts after successful import
+        try:
+            check_all_budget_alerts(db)
+        except Exception as e:
+            print(f"Budget alert check failed after import: {e}")
+
         return ImportStatusResponse(
             import_id=import_id,
             status=ImportStatus.COMPLETED,
@@ -226,6 +229,20 @@ def process_import(
             transactions_skipped=skipped,
             errors=errors
         )
+
+    except Exception as e:
+        import_log.status = ImportStatus.FAILED
+        import_log.error_message = str(e)
+        db.commit()
+
+        failed_path = Path(settings.import_failed_path)
+        failed_path.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(file_path), str(failed_path / file_path.name))
+
+        if import_id in PENDING_IMPORTS:
+            del PENDING_IMPORTS[import_id]
+
+        raise
 
     except Exception as e:
         import_log.status = ImportStatus.FAILED

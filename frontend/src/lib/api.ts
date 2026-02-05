@@ -399,6 +399,78 @@ export async function detectAnnualCharges() {
   return response.data
 }
 
+// Budgets
+export interface Budget {
+  id: string
+  category_id: string | null
+  category_name: string
+  amount: number
+  period: 'weekly' | 'monthly' | 'yearly'
+  start_date: string
+  current_period_spent: number
+  remaining: number
+  percent_used: number
+  is_over_budget: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface BudgetProgress {
+  budget_id: string
+  spent: number
+  remaining: number
+  percent_used: number
+  is_over_budget: boolean
+}
+
+export interface BudgetCreate {
+  category_id?: string | null
+  amount: number
+  period: 'weekly' | 'monthly' | 'yearly'
+  start_date: string
+}
+
+export interface BudgetUpdate {
+  category_id?: string | null
+  amount?: number
+  period?: 'weekly' | 'monthly' | 'yearly'
+  start_date?: string
+}
+
+export const getBudgets = async (includeProgress: boolean = false) => {
+  const response = await api.get<{ items: Budget[]; total: number }>('/budgets', {
+    params: { include_progress: includeProgress },
+  })
+  return response.data
+}
+
+export const getBudget = async (id: string) => {
+  const response = await api.get<Budget>(`/budgets/${id}`)
+  return response.data
+}
+
+export const createBudget = async (data: BudgetCreate) => {
+  const response = await api.post<Budget>('/budgets', data)
+  return response.data
+}
+
+export const updateBudget = async (id: string, data: BudgetUpdate) => {
+  const response = await api.patch<Budget>(`/budgets/${id}`, data)
+  return response.data
+}
+
+export const deleteBudget = async (id: string) => {
+  await api.delete(`/budgets/${id}`)
+}
+
+export const getBudgetProgress = async (id: string, date?: string) => {
+  const url = date
+    ? `/budgets/${id}/progress?date=${date}`
+    : `/budgets/${id}/progress`
+  const response = await api.get<BudgetProgress>(url)
+  return response.data
+}
+
 // Privacy API
 export const privacyApi = {
   getSettings: async (): Promise<PrivacySettings> =>

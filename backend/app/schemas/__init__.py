@@ -31,6 +31,14 @@ from app.schemas.transaction import (
     TransactionResponse,
     TransactionListResponse,
 )
+from app.schemas.budget import (
+    BudgetBase,
+    BudgetCreate,
+    BudgetUpdate,
+    BudgetResponse,
+    BudgetList,
+    BudgetProgress,
+)
 
 __all__ = [
     "AccountBase",
@@ -54,4 +62,10 @@ __all__ = [
     "TransactionUpdate",
     "TransactionResponse",
     "TransactionListResponse",
+    "BudgetBase",
+    "BudgetCreate",
+    "BudgetUpdate",
+    "BudgetResponse",
+    "BudgetList",
+    "BudgetProgress",
 ]

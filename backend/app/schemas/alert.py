@@ -13,6 +13,7 @@ class AlertBase(BaseModel):
     description: str
     transaction_id: Optional[str] = None
     recurring_group_id: Optional[str] = None
+    budget_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -34,6 +35,7 @@ class AlertResponse(BaseModel):
     description: str
     transaction_id: Optional[str] = None
     recurring_group_id: Optional[str] = None
+    budget_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     is_read: bool
     is_dismissed: bool
@@ -68,6 +70,8 @@ class AlertSettingsBase(BaseModel):
     unusual_merchant_threshold: float = 200.0
     subscription_review_days: int = 90
     annual_charge_warning_days: int = 14
+    budget_warning_threshold: int = 80
+    budget_alerts_enabled: bool = True
     alerts_enabled: bool = True
 
 
@@ -77,6 +81,8 @@ class AlertSettingsUpdate(BaseModel):
     unusual_merchant_threshold: Optional[float] = None
     subscription_review_days: Optional[int] = None
     annual_charge_warning_days: Optional[int] = None
+    budget_warning_threshold: Optional[int] = None
+    budget_alerts_enabled: Optional[bool] = None
     alerts_enabled: Optional[bool] = None
 
 

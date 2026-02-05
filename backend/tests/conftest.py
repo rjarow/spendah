@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, inspect, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import uuid
 
@@ -17,6 +17,7 @@ from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.recurring import RecurringGroup, Frequency
 from app.models.alert import Alert, AlertType, Severity, AlertSettings
+from app.models.budget import Budget, BudgetPeriod
 
 
 @pytest.fixture(scope="function")
@@ -145,3 +146,20 @@ def alert_settings(db_session):
     db_session.commit()
     db_session.refresh(settings)
     return settings
+
+
+@pytest.fixture
+def sample_budget(db_session, sample_category):
+    """Create a sample budget."""
+    budget = Budget(
+        id=str(uuid.uuid4()),
+        category_id=sample_category.id,
+        amount=Decimal("500.00"),
+        period=BudgetPeriod.weekly,
+        start_date=date.today() - timedelta(days=3),
+        is_active=True
+    )
+    db_session.add(budget)
+    db_session.commit()
+    db_session.refresh(budget)
+    return budget

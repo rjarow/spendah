@@ -1,9 +1,11 @@
 """
-Seed script for default categories.
+Seed script for default categories and account balances.
 """
 
 from app.database import SessionLocal
-from app.models import Category
+from app.models import Category, Account, BalanceHistory
+from app.models.account import AccountType
+from datetime import date, datetime
 import uuid
 
 
@@ -163,5 +165,76 @@ def seed_categories():
         db.close()
 
 
+def seed_account_balances():
+    """Seed initial account balances for development testing."""
+    db = SessionLocal()
+
+    try:
+        # Check if accounts exist
+        existing_accounts = db.query(Account).count()
+        if existing_accounts == 0:
+            print("No accounts found. Run account seed first.")
+            return
+
+        # Get existing accounts and set initial balances
+        accounts = db.query(Account).filter(Account.is_active == True).all()
+
+        print(f"Setting initial balances on {len(accounts)} accounts...")
+
+        for account in accounts:
+            if account.is_active:
+                # Set different balances based on account type
+                if account.account_type == AccountType.bank:
+                    account.current_balance = 2500.00
+                    account.balance_updated_at = datetime.utcnow()
+                    print(f"  {account.name}: $2500.00")
+                elif account.account_type == AccountType.credit:
+                    account.current_balance = -1500.00
+                    account.balance_updated_at = datetime.utcnow()
+                    print(f"  {account.name}: -$1500.00")
+                elif account.account_type == AccountType.cash:
+                    account.current_balance = 500.00
+                    account.balance_updated_at = datetime.utcnow()
+                    print(f"  {account.name}: $500.00")
+                else:
+                    account.current_balance = 1000.00
+                    account.balance_updated_at = datetime.utcnow()
+                    print(f"  {account.name}: $1000.00")
+
+        # Create some balance history snapshots for testing
+        print("\nCreating balance history snapshots...")
+
+        active_accounts = [acc for acc in accounts if acc.is_active]
+        for account in active_accounts[:3]:  # Only snapshot first 3 accounts
+            for i in range(5):  # Create 5 snapshots per account
+                days_ago = 5 - i
+                snapshot_date = date.today() - __import__('datetime').timedelta(days=days_ago)
+
+                # Vary the balance slightly for each snapshot
+                balance_offset = (5 - i) * 50
+                if account.account_type == AccountType.credit:
+                    balance = -(1500.00 + balance_offset)
+                else:
+                    balance = (2500.00 + balance_offset) if account.account_type == AccountType.bank else (500.00 + balance_offset)
+
+                snapshot = BalanceHistory(
+                    account_id=account.id,
+                    balance=balance,
+                    recorded_at=snapshot_date
+                )
+                db.add(snapshot)
+                print(f"  {account.name} on {snapshot_date}: ${balance:.2f}")
+
+        db.commit()
+        print("\nSuccessfully seeded account balances and history")
+
+    except Exception as e:
+        print(f"Error seeding account balances: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     seed_categories()
+    seed_account_balances()

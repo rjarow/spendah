@@ -2,6 +2,7 @@
 Account API endpoints.
 """
 
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -80,6 +81,9 @@ def update_account(
         account.account_type = account_update.account_type
     if account_update.is_active is not None:
         account.is_active = account_update.is_active
+    if account_update.current_balance is not None:
+        account.current_balance = account_update.current_balance
+        account.balance_updated_at = datetime.utcnow()
 
     db.commit()
     db.refresh(account)
@@ -100,3 +104,37 @@ def delete_account(
     account.is_active = False
     db.commit()
     return None
+
+
+@router.post("/{account_id}/balance", response_model=AccountResponse)
+def update_account_balance(
+    account_id: str,
+    current_balance: float,
+    balance_date: datetime = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Update account balance explicitly.
+
+    Sets the current balance and timestamp.
+    """
+    from app.services.networth_service import record_balance_snapshot, NetWorthError
+
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    try:
+        account.current_balance = current_balance
+        account.balance_updated_at = datetime.utcnow()
+
+        record_balance_snapshot(db, account_id, current_balance, balance_date or datetime.utcnow().date())
+
+        db.commit()
+        db.refresh(account)
+
+        return account
+    except NetWorthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

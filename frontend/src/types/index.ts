@@ -234,7 +234,7 @@ export interface DetectionResponse {
 }
 
 // Alert types
-export type AlertType = 'large_purchase' | 'price_increase' | 'new_recurring' | 'unusual_merchant' | 'annual_charge'
+export type AlertType = 'large_purchase' | 'price_increase' | 'new_recurring' | 'unusual_merchant' | 'annual_charge' | 'budget_warning' | 'budget_exceeded'
 export type AlertSeverity = 'info' | 'warning' | 'attention'
 
 export interface Alert {
@@ -245,6 +245,7 @@ export interface Alert {
   description: string
   transaction_id: string | null
   recurring_group_id: string | null
+  budget_id: string | null
   metadata: Record<string, any> | null
   is_read: boolean
   is_dismissed: boolean
@@ -322,4 +323,43 @@ export interface PrivacySettings {
   obfuscation_enabled: boolean
   provider_settings: ProviderPrivacyConfig[]
   stats: TokenStats
+}
+
+export type BudgetPeriod = 'weekly' | 'monthly' | 'yearly'
+
+export interface Budget {
+  id: string
+  category_id: string | null
+  category_name: string
+  amount: number
+  period: BudgetPeriod
+  start_date: string
+  current_period_spent: number
+  remaining: number
+  percent_used: number
+  is_over_budget: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface BudgetProgress {
+  budget_id: string
+  spent: number
+  remaining: number
+  percent_used: number
+  is_over_budget: boolean
+}
+
+export interface BudgetCreate {
+  category_id?: string | null
+  amount: number
+  period: BudgetPeriod
+  start_date: string
+}
+
+export interface BudgetUpdate {
+  category_id?: string | null
+  amount?: number
+  period?: BudgetPeriod
+  start_date?: string
 }

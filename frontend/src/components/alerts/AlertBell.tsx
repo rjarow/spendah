@@ -1,18 +1,29 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getAlerts, updateAlert, markAllAlertsRead } from '@/lib/api'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 const SEVERITY_ICONS: Record<string, string> = {
   info: 'ℹ️',
   warning: '⚡',
   attention: '⚠️',
+  budget_warning: '🟡',
+  budget_exceeded: '🔴',
+}
+
+const SEVERITY_COLORS: Record<string, string> = {
+  info: 'bg-blue-100 border-blue-200',
+  warning: 'bg-yellow-100 border-yellow-200',
+  attention: 'bg-orange-100 border-orange-200',
+  budget_warning: 'bg-yellow-50/50 border-yellow-100',
+  budget_exceeded: 'bg-red-50/50 border-red-100',
 }
 
 export default function AlertBell() {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const { data: alertsData } = useQuery({
     queryKey: ['alerts', { limit: 5 }],
@@ -85,16 +96,19 @@ export default function AlertBell() {
                 <div
                   key={alert.id}
                   className={`p-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 ${
-                    !alert.is_read ? 'bg-blue-50/50' : ''
+                    SEVERITY_COLORS[alert.type] || (!alert.is_read ? 'bg-blue-50/50' : '')
                   }`}
                   onClick={() => {
-                    if (!alert.is_read) {
+                    if (alert.budget_id) {
+                      navigate(`/budgets?budget=${alert.budget_id}`)
+                      setIsOpen(false)
+                    } else if (!alert.is_read) {
                       markReadMutation.mutate(alert.id)
                     }
                   }}
                 >
                   <div className="flex gap-2">
-                    <span>{SEVERITY_ICONS[alert.severity]}</span>
+                    <span>{SEVERITY_ICONS[alert.type] || SEVERITY_ICONS[alert.severity]}</span>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm truncate">
                         {alert.title}

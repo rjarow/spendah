@@ -69,3 +69,37 @@ class OFXParser(BaseParser):
                 })
 
         return transactions
+
+    def extract_balance(self, file_path: Path) -> Optional[Decimal]:
+        """
+        Extract balance information from OFX file.
+
+        OFX files often contain balance information in:
+        - Ledger balance (<LEDGERBAL><BALAMT>)
+        - Available balance (<BALAMT> within <AVGBAL>)
+
+        Returns:
+            Balance as Decimal, or None if no balance information found
+        """
+        try:
+            with open(file_path, 'rb') as f:
+                ofx = OFXParseLib.parse(f)
+
+            # OFX files can have multiple accounts
+            # We'll return the first account's ledger balance
+            if ofx.accounts and len(ofx.accounts) > 0:
+                account = ofx.accounts[0]
+                # Ledger balance is the total balance of the account
+                balance = getattr(account.statement, 'balance', None)
+                if balance is not None:
+                    return Decimal(str(balance))
+
+                # Available balance (if ledger balance is not available)
+                available_balance = getattr(account.statement, 'available_balance', None)
+                if available_balance is not None:
+                    return Decimal(str(available_balance))
+
+            return None
+        except Exception as e:
+            print(f"Error extracting balance from OFX: {e}")
+            return None

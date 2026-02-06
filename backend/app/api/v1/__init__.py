@@ -8,4 +8,4 @@ router = APIRouter()
 
 from app.api.v1 import networth
 
-router.include_router(networth.router, prefix="/networth", tags=["networth"])
+router.include_router(networth.router, tags=["networth"])

@@ -18,12 +18,12 @@ class TestAccountsAPI:
         """Should create a new account."""
         response = client.post("/api/v1/accounts", json={
             "name": "My Checking",
-            "account_type": "bank"
+            "account_type": "checking"
         })
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == "My Checking"
-        assert data["account_type"] == "bank"
+        assert data["account_type"] == "checking"
         assert "id" in data
 
     def test_list_accounts_with_data(self, client, sample_account):

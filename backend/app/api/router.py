@@ -18,4 +18,4 @@ api_router.include_router(alerts.router)
 api_router.include_router(privacy.router)
 
 # Include v1 API router
-api_router.include_router(v1.router, prefix="/networth", tags=["networth"])
+api_router.include_router(v1.router, tags=["networth"])

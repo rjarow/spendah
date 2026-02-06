@@ -179,21 +179,25 @@ def get_networth_history(db: Session, start_date: date, end_date: date = None) -
         BalanceHistory.account_id.in_(asset_accounts + liability_accounts)
     ).order_by(BalanceHistory.recorded_at.asc()).all()
 
-    history = []
+    if not snapshots:
+        return []
 
-    for snapshot in snapshots:
+    history = []
+    unique_dates = sorted(set(s.recorded_at for s in snapshots))
+
+    for unique_date in unique_dates:
         total_net_worth = Decimal("0.00")
 
         for acc_id in asset_accounts:
-            balance_value = _get_account_balance_at_date(db, acc_id, snapshot.recorded_at, asset=True)
+            balance_value = _get_account_balance_at_date(db, acc_id, unique_date, asset=True)
             total_net_worth += balance_value
 
         for acc_id in liability_accounts:
-            balance_value = _get_account_balance_at_date(db, acc_id, snapshot.recorded_at, asset=False)
-            total_net_worth -= balance_value
+            balance_value = _get_account_balance_at_date(db, acc_id, unique_date, asset=False)
+            total_net_worth += balance_value
 
         history.append({
-            "date": snapshot.recorded_at.isoformat(),
+            "date": unique_date.isoformat(),
             "net_worth": float(total_net_worth)
         })
 

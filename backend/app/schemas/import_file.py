@@ -31,6 +31,7 @@ class ImportUploadResponse(BaseModel):
     headers: List[str]
     preview_rows: List[List[str]]
     detected_format: Optional[Dict[str, Any]] = None
+    extracted_balance: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -42,6 +43,8 @@ class ImportConfirmRequest(BaseModel):
     date_format: str = "%d/%m/%Y"
     save_format: bool = False
     format_name: Optional[str] = None
+    update_balance: bool = False
+    new_balance: Optional[float] = None
 
 
 class ImportStatusResponse(BaseModel):

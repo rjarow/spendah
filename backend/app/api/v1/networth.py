@@ -47,7 +47,8 @@ async def get_networth_breakdown_detail(db: Session = Depends(get_db)):
 @router.get("/networth/history")
 async def get_networth_history_endpoint(
     start_date: date = Query(..., description="Start date for history"),
-    end_date: date = Query(default=date.today(), description="End date for history")
+    end_date: date = Query(default=date.today(), description="End date for history"),
+    db: Session = Depends(get_db)
 ):
     """
     Get historical net worth data for charting.
@@ -55,17 +56,30 @@ async def get_networth_history_endpoint(
     Uses balance snapshots from BalanceHistory table.
     """
     try:
-        return get_networth_history(start_date, end_date)
+        return get_networth_history(db, start_date, end_date)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/networth/snapshot")
+@router.post("/networth/auto-snapshot")
 async def create_balance_snapshot(db: Session = Depends(get_db)):
     """
-    Manually trigger balance snapshot for all accounts.
+    Automatically record balance snapshots for all active accounts.
 
     Records current balances to BalanceHistory table for net worth history tracking.
+    Use this endpoint to manually trigger a snapshot, or set up a background task/cron
+    to run this periodically (daily or weekly) for tracking net worth over time.
+
+    For periodic snapshots, consider:
+    - Using a cron job to call this endpoint daily at a consistent time
+    - Setting up a background task that runs on import completion
+    - Triggering on manual balance updates
+
+    Example cron entry (daily at 9am):
+    0 9 * * * curl -X POST http://localhost:8000/api/v1/networth/auto-snapshot
+
+    Returns:
+        Dictionary with total snapshots created and error count
     """
     try:
         result = auto_snapshot_all_balances(db)
@@ -96,10 +110,10 @@ async def update_account_balance(
         raise HTTPException(status_code=404, detail="Account not found")
 
     try:
-        account.current_balance = float(current_balance)
+        account.current_balance = Decimal(str(current_balance))
         account.balance_updated_at = datetime.utcnow()
 
-        snapshot = record_balance_snapshot(db, str(account_id), float(current_balance), balance_date)
+        snapshot = record_balance_snapshot(db, str(account_id), Decimal(str(current_balance)), balance_date)
 
         db.commit()
         db.refresh(account)

@@ -103,13 +103,11 @@ async def get_preview_with_ai(
     headers, preview_rows = parser.get_preview(file_path)
 
     detected_format = None
+    balance = None
     if isinstance(parser, CSVParser):
         detected_format = await detect_csv_format(headers, preview_rows)
-
-    if isinstance(parser, CSVParser):
-        with open(file_path, 'r', encoding='utf-8-sig') as f:
-            row_count = sum(1 for _ in f) - 1
     else:
+        balance = parser.extract_balance(file_path)
         with open(file_path, 'rb') as f:
             from ofxparse import OfxParser
             ofx = OfxParser.parse(f)
@@ -119,16 +117,18 @@ async def get_preview_with_ai(
         'file_path': str(file_path),
         'filename': filename,
         'parser_type': type(parser).__name__,
-        'detected_format': detected_format
+        'detected_format': detected_format,
+        'extracted_balance': float(balance) if balance else None
     }
 
     return ImportUploadResponse(
         import_id=import_id,
         filename=filename,
-        row_count=row_count,
+        row_count=row_count if row_count else len(preview_rows),
         headers=headers,
         preview_rows=preview_rows,
-        detected_format=detected_format
+        detected_format=detected_format,
+        extracted_balance=float(balance) if balance else None
     )
 
 
@@ -204,6 +204,19 @@ def process_import(
                 errors.append(str(e))
 
         db.commit()
+
+        # Update balance if requested
+        if request.update_balance and request.new_balance is not None:
+            from app.models.account import Account
+            from sqlalchemy import func
+            from decimal import Decimal
+
+            account = db.query(Account).filter(Account.id == request.account_id).first()
+            if account:
+                account.current_balance = Decimal(str(request.new_balance))
+                account.balance_updated_at = func.now()
+                db.commit()
+                print(f"Updated balance for account {account.name} to {request.new_balance}")
 
         import_log.status = ImportStatus.COMPLETED
         import_log.transactions_imported = imported
@@ -350,6 +363,19 @@ async def process_import_with_ai(
         if errors:
             import_log.error_message = "; ".join(errors[:10])
         db.commit()
+
+        # Update balance if requested
+        if request.update_balance and request.new_balance is not None:
+            from app.models.account import Account
+            from sqlalchemy import func
+            from decimal import Decimal
+
+            account = db.query(Account).filter(Account.id == request.account_id).first()
+            if account:
+                account.current_balance = Decimal(str(request.new_balance))
+                account.balance_updated_at = func.now()
+                db.commit()
+                print(f"Updated balance for account {account.name} to {request.new_balance}")
 
         # Check budget alerts after successful import
         try:

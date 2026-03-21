@@ -4,6 +4,7 @@ Import API endpoints.
 
 import hashlib
 import logging
+from typing import Optional
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query
 from sqlalchemy.orm import Session
 

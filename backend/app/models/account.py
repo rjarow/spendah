@@ -5,8 +5,16 @@ Account database model.
 import uuid
 from decimal import Decimal
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Enum, ForeignKey, Numeric
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import (
+    Column,
+    String,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Numeric,
+    Index,
+)
 from sqlalchemy.orm import relationship
 import enum
 from app.database import Base
@@ -14,6 +22,7 @@ from app.database import Base
 
 class AccountType(str, enum.Enum):
     """Account type enumeration."""
+
     checking = "checking"
     savings = "savings"
     credit_card = "credit_card"
@@ -30,18 +39,27 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    name = Column(String(100), nullable=False)
+    name = Column(String(100), nullable=False, index=True)
     account_type = Column(Enum(AccountType), nullable=False)
-    learned_format_id = Column(String(36), ForeignKey("learned_formats.id"), nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
+    learned_format_id = Column(
+        String(36), ForeignKey("learned_formats.id", ondelete="SET NULL"), nullable=True
+    )
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     current_balance = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     balance_updated_at = Column(DateTime, nullable=True)
 
-    # Relationships
-    transactions = relationship("Transaction", back_populates="account")
-    learned_format = relationship("LearnedFormat", back_populates="accounts", foreign_keys=[learned_format_id])
-    balance_history = relationship("BalanceHistory", back_populates="account", cascade="all, delete-orphan")
+    __table_args__ = (Index("ix_accounts_name_active", "name", "is_active"),)
+
+    transactions = relationship(
+        "Transaction", back_populates="account", passive_deletes=True
+    )
+    learned_format = relationship(
+        "LearnedFormat", back_populates="accounts", foreign_keys=[learned_format_id]
+    )
+    balance_history = relationship(
+        "BalanceHistory", back_populates="account", cascade="all, delete-orphan"
+    )
 
     @property
     def is_asset(self) -> bool:
@@ -50,6 +68,6 @@ class Account(Base):
             AccountType.checking,
             AccountType.savings,
             AccountType.investment,
-            AccountType.cash
+            AccountType.cash,
         }
         return self.account_type in asset_types

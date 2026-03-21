@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import AlertBell from '@/components/alerts/AlertBell'
+import { CoachWidget } from '@/components/coach/CoachWidget'
 
 export default function Layout() {
   return (
@@ -14,6 +15,7 @@ export default function Layout() {
           <AlertBell />
         </div>
       </div>
+      <CoachWidget />
     </div>
   )
 }

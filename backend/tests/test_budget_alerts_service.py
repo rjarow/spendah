@@ -13,7 +13,9 @@ from app.services.budget_alerts import (
     get_budget_alert_summary
 )
 from app.models.budget import Budget, BudgetPeriod
+from app.models.category import Category
 from app.models.alert import Alert, AlertType, Severity, AlertSettings
+from app.models.transaction import Transaction
 
 
 class TestBudgetAlertSettings:
@@ -63,6 +65,10 @@ class TestBudgetSpendingCalculation:
 
     def test_calculates_spending_monthly(self, db_session, sample_budget, sample_account):
         """Should calculate spending over 30 days."""
+        # Change budget to monthly so 30-day window includes transactions from 10 days ago
+        sample_budget.period = BudgetPeriod.monthly
+        db_session.commit()
+
         amount = Decimal("-450.00")
         txn = Transaction(
             id=str(uuid.uuid4()),
@@ -82,6 +88,11 @@ class TestBudgetSpendingCalculation:
 
     def test_calculates_spending_yearly(self, db_session, sample_budget, sample_account):
         """Should calculate spending over 365 days."""
+        # Change budget to yearly so 365-day window includes transactions from 180 days ago
+        sample_budget.period = BudgetPeriod.yearly
+        sample_budget.amount = Decimal("5000.00")
+        db_session.commit()
+
         amount = Decimal("-5400.00")
         txn = Transaction(
             id=str(uuid.uuid4()),
@@ -396,7 +407,7 @@ class TestCheckAllBudgetAlerts:
         assert AlertType.budget_exceeded in alert_types
 
     def test_handles_multiple_budgets_separately(self, db_session, sample_category, sample_account):
-        """Should handle different budgets independently."""
+        """Should create alerts for each budget that shares the same category spending."""
         budget1 = Budget(
             id=str(uuid.uuid4()),
             category_id=sample_category.id,
@@ -405,9 +416,20 @@ class TestCheckAllBudgetAlerts:
             start_date=date.today() - timedelta(days=3),
             is_active=True
         )
+        # Second category with a higher amount so it is NOT exceeded
+        other_category = Category(
+            id=str(uuid.uuid4()),
+            name="Other Category",
+            color="#ff0000",
+            icon="tag",
+            is_system=True
+        )
+        db_session.add(other_category)
+        db_session.flush()
+
         budget2 = Budget(
             id=str(uuid.uuid4()),
-            category_id=sample_category.id,
+            category_id=other_category.id,
             amount=Decimal("100.00"),
             period=BudgetPeriod.weekly,
             start_date=date.today() - timedelta(days=3),
@@ -416,7 +438,7 @@ class TestCheckAllBudgetAlerts:
         db_session.add_all([budget1, budget2])
         db_session.commit()
 
-        # Only exceed budget1
+        # Only exceed budget1's category
         txn1 = Transaction(
             id=str(uuid.uuid4()),
             hash="hash-b1",

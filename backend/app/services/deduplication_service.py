@@ -5,7 +5,7 @@ Deduplication service for transactions.
 import hashlib
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Set, List
 
 from sqlalchemy.orm import Session
 
@@ -13,10 +13,7 @@ from app.models.transaction import Transaction
 
 
 def generate_transaction_hash(
-    txn_date: date,
-    amount: Decimal,
-    raw_description: str,
-    account_id: str
+    txn_date: date, amount: Decimal, raw_description: str, account_id: str
 ) -> str:
     """
     Generate SHA256 hash for deduplication.
@@ -26,7 +23,7 @@ def generate_transaction_hash(
         txn_date.isoformat(),
         str(amount),
         raw_description.strip().lower(),
-        str(account_id)
+        str(account_id),
     ]
     combined = "|".join(components)
     return hashlib.sha256(combined.encode()).hexdigest()
@@ -34,4 +31,17 @@ def generate_transaction_hash(
 
 def is_duplicate(db: Session, txn_hash: str) -> bool:
     """Check if transaction with this hash already exists"""
-    return db.query(Transaction).filter(Transaction.hash == txn_hash).first() is not None
+    return (
+        db.query(Transaction).filter(Transaction.hash == txn_hash).first() is not None
+    )
+
+
+def get_existing_hashes(db: Session, hashes: List[str]) -> Set[str]:
+    """
+    Batch check for existing transaction hashes.
+    Returns a set of hashes that already exist in the database.
+    """
+    if not hashes:
+        return set()
+    existing = db.query(Transaction.hash).filter(Transaction.hash.in_(hashes)).all()
+    return {row[0] for row in existing}

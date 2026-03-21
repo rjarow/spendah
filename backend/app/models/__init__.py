@@ -14,6 +14,7 @@ from app.models.user_correction import UserCorrection
 from app.models.token_map import TokenMap, TokenType, DateShift
 from app.models.privacy_settings import PrivacySettings, get_or_create_privacy_settings
 from app.models.budget import Budget, BudgetPeriod
+from app.models.conversation import Conversation, Message, MessageRole
 
 __all__ = [
     "Account",
@@ -40,4 +41,7 @@ __all__ = [
     "get_or_create_privacy_settings",
     "Budget",
     "BudgetPeriod",
+    "Conversation",
+    "Message",
+    "MessageRole",
 ]

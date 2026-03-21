@@ -7,9 +7,7 @@ import random
 
 
 def redact_sample_rows(
-    headers: List[str],
-    rows: List[List[str]],
-    date_shift_days: int = 937
+    headers: List[str], rows: List[List[str]], date_shift_days: int = 937
 ) -> Tuple[List[str], List[List[str]]]:
     """
     Redact sample rows while preserving structure for format detection.
@@ -33,7 +31,7 @@ def redact_sample_rows(
                 cell_str,
                 headers[i] if i < len(headers) else "",
                 date_shift_days,
-                merchant_labels[merchant_counter % len(merchant_labels)]
+                merchant_labels[merchant_counter % len(merchant_labels)],
             )
 
             # Track if this looks like a merchant column
@@ -56,16 +54,16 @@ def redact_cell(cell: str, header: str, date_shift: int, merchant_label: str) ->
 
     # Date patterns
     date_patterns = [
-        r'^\d{1,2}/\d{1,2}/\d{2,4}$',
-        r'^\d{4}-\d{2}-\d{2}$',
-        r'^\d{1,2}-\d{1,2}-\d{2,4}$',
+        r"^\d{1,2}/\d{1,2}/\d{2,4}$",
+        r"^\d{4}-\d{2}-\d{2}$",
+        r"^\d{1,2}-\d{1,2}-\d{2,4}$",
     ]
     for pattern in date_patterns:
         if re.match(pattern, cell):
             # Return a shifted fake date in same format
             try:
                 fake_date = date.today() + timedelta(days=date_shift)
-                if '/' in cell:
+                if "/" in cell:
                     return fake_date.strftime("%m/%d/%Y")
                 else:
                     return fake_date.isoformat()
@@ -74,32 +72,39 @@ def redact_cell(cell: str, header: str, date_shift: int, merchant_label: str) ->
 
     # Amount patterns (preserve format but hide value)
     amount_patterns = [
-        (r'^-?\$?[\d,]+\.\d{2}$', lambda m: "-XXX.XX" if m.startswith('-') else "XXX.XX"),
-        (r'^\([\d,]+\.\d{2}\)$', lambda m: "(XXX.XX)"),
-        (r'^-?[\d,]+\.\d{2}$', lambda m: "-XXX.XX" if m.startswith('-') else "XXX.XX"),
+        (
+            r"^-?\$?[\d,]+\.\d{2}$",
+            lambda m: "-XXX.XX" if m.startswith("-") else "XXX.XX",
+        ),
+        (r"^\([\d,]+\.\d{2}\)$", lambda m: "(XXX.XX)"),
+        (r"^-?[\d,]+\.\d{2}$", lambda m: "-XXX.XX" if m.startswith("-") else "XXX.XX"),
     ]
     for pattern, replacer in amount_patterns:
-        if re.match(pattern, cell.replace(',', '').replace('$', '')):
+        if re.match(pattern, cell.replace(",", "").replace("$", "")):
             return replacer(cell)
 
     # Header hints for description/merchant columns
-    desc_headers = ['description', 'merchant', 'payee', 'memo', 'details', 'name']
+    desc_headers = ["description", "merchant", "payee", "memo", "details", "name"]
     if any(h in header.lower() for h in desc_headers):
         # Check for person payment patterns
-        if any(svc in cell.upper() for svc in ['VENMO', 'ZELLE', 'PAYPAL', 'CASH APP']):
-            service = next(s for s in ['VENMO', 'ZELLE', 'PAYPAL', 'CASH APP'] if s in cell.upper())
+        if any(svc in cell.upper() for svc in ["VENMO", "ZELLE", "PAYPAL", "CASH APP"]):
+            service = next(
+                s for s in ["VENMO", "ZELLE", "PAYPAL", "CASH APP"] if s in cell.upper()
+            )
             return f"{service} REDACTED_PERSON"
         return f"REDACTED_MERCHANT_{merchant_label}"
 
     # Check if it looks like a merchant/description anyway
-    if len(cell) > 10 and not cell.replace('.','').replace(',','').isdigit():
-        if any(svc in cell.upper() for svc in ['VENMO', 'ZELLE', 'PAYPAL', 'CASH APP']):
-            service = next(s for s in ['VENMO', 'ZELLE', 'PAYPAL', 'CASH APP'] if s in cell.upper())
+    if len(cell) > 10 and not cell.replace(".", "").replace(",", "").isdigit():
+        if any(svc in cell.upper() for svc in ["VENMO", "ZELLE", "PAYPAL", "CASH APP"]):
+            service = next(
+                s for s in ["VENMO", "ZELLE", "PAYPAL", "CASH APP"] if s in cell.upper()
+            )
             return f"{service} REDACTED_PERSON"
         return f"REDACTED_MERCHANT_{merchant_label}"
 
     # Account numbers (mask all but format)
-    if re.match(r'^[\d\-\*]+$', cell) and len(cell) > 4:
+    if re.match(r"^[\d\-\*]+$", cell) and len(cell) > 4:
         return "****" + cell[-4:] if len(cell) >= 4 else "****"
 
     # Default: keep short values, redact longer ones
@@ -127,7 +132,8 @@ Respond with JSON only, no explanation:
     "category": <column_index or null>,
     "debit": <column_index or null>,
     "credit": <column_index or null>,
-    "balance": <column_index or null>
+    "balance": <column_index or null>,
+    "account": <column_index or null>
   },
   "date_format": "<strptime format string>",
   "amount_style": "signed" | "separate_columns" | "parentheses_negative",
@@ -148,7 +154,10 @@ Common date formats:
 Amount styles:
 - "signed": single column with positive/negative values
 - "separate_columns": separate debit and credit columns
-- "parentheses_negative": negative amounts shown as (50.00)"""
+- "parentheses_negative": negative amounts shown as (50.00)
+
+The "account" column is for exports that contain transactions from multiple accounts (like Rocket Money).
+Look for headers like "account", "account name", "account_name", "bank account", etc."""
 
 FORMAT_DETECTION_USER = """Analyze this CSV file and identify column mapping.
 

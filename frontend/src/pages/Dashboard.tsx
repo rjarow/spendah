@@ -44,12 +44,19 @@ export default function Dashboard() {
     queryFn: () => getNetWorth(),
   })
 
-  const chartData = Array.from({ length: 6 }, (_, i) => {
+  const chartData = trends?.map(t => ({
+    date: new Date(t.month + '-01').toLocaleDateString('en-US', { month: 'short' }),
+    netWorth: t.net,
+    income: t.income,
+    expenses: t.expenses,
+  })) || Array.from({ length: 6 }, (_, i) => {
     const date = new Date()
     date.setMonth(date.getMonth() - i)
     return {
       date: date.toLocaleDateString('en-US', { month: 'short' }),
       netWorth: 0,
+      income: 0,
+      expenses: 0,
     }
   }).reverse()
 
@@ -287,38 +294,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Upcoming Renewals */}
-      <div className="bg-white border rounded-lg p-4">
-        <h2 className="text-lg font-semibold mb-4">Upcoming Renewals</h2>
-        <div className="space-y-3">
-          {upcomingRenewals?.renewals?.slice(0, 5).map((renewal) => (
-            <div key={renewal.recurring_group_id} className="flex justify-between items-center">
-              <div>
-                <div className="text-sm font-medium">{renewal.merchant}</div>
-                <div className="text-xs text-gray-500">
-                  {renewal.days_until === 0 ? 'Today' :
-                   renewal.days_until === 1 ? 'Tomorrow' :
-                   `In ${renewal.days_until} days`}
-                </div>
-              </div>
-              <div className="text-sm font-medium text-red-600">
-                {formatCurrency(renewal.amount)}
-              </div>
-            </div>
-          ))}
-          {(!upcomingRenewals?.renewals || upcomingRenewals.renewals.length === 0) && (
-            <p className="text-sm text-gray-500">No upcoming renewals in next 30 days</p>
-          )}
-        </div>
-        {upcomingRenewals?.total_upcoming_30_days > 0 && (
-          <div className="mt-3 pt-3 border-t text-sm">
-            <span className="text-gray-500">Total next 30 days:</span>
-            <span className="font-medium text-red-600 ml-2">
-              {formatCurrency(upcomingRenewals.total_upcoming_30_days)}
-            </span>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

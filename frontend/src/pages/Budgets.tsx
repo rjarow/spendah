@@ -5,26 +5,7 @@ import { Button } from '@/components/ui/button'
 import { BudgetProgressBar } from '@/components/BudgetProgressBar'
 import { formatCurrency } from '@/lib/formatters'
 import { Trash2, Edit, Plus, Target, AlertCircle, Calendar } from 'lucide-react'
-
-interface Category {
-  id: string
-  name: string
-  parent_id: string | null
-  children: Category[]
-}
-
-interface Budget {
-  id: string
-  category_id: string | null
-  category_name: string
-  amount: number
-  period: 'weekly' | 'monthly' | 'yearly'
-  start_date: string
-  current_period_spent: number
-  remaining: number
-  percent_used: number
-  is_over_budget: boolean
-}
+import type { Budget, BudgetProgress, Category } from '@/types'
 
 export default function Budgets() {
   const queryClient = useQueryClient()
@@ -37,6 +18,34 @@ export default function Budgets() {
     start_date: new Date().toISOString().split('T')[0],
   })
   const [viewPeriod, setViewPeriod] = useState<'current' | 'previous' | 'last30' | 'last90'>('current')
+
+  // Get date ranges for historical views (must be before query that uses it)
+  const getDateRange = () => {
+    const today = new Date()
+    switch (viewPeriod) {
+      case 'last30':
+        return {
+          start: new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          end: today.toISOString().split('T')[0]
+        }
+      case 'last90':
+        return {
+          start: new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          end: today.toISOString().split('T')[0]
+        }
+      case 'previous':
+        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+        const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
+        return {
+          start: lastMonth.toISOString().split('T')[0],
+          end: lastMonthEnd.toISOString().split('T')[0]
+        }
+      default: // current
+        return null
+    }
+  }
+
+  const dateRange = getDateRange()
 
   const { data: budgets, isLoading: budgetsLoading } = useQuery({
     queryKey: ['budgets'],
@@ -155,34 +164,6 @@ export default function Budgets() {
     return <div className="p-4">Loading budgets...</div>
   }
 
-  // Get date ranges for historical views
-  const getDateRange = () => {
-    const today = new Date()
-    switch (viewPeriod) {
-      case 'last30':
-        return {
-          start: new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          end: today.toISOString().split('T')[0]
-        }
-      case 'last90':
-        return {
-          start: new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          end: today.toISOString().split('T')[0]
-        }
-      case 'previous':
-        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-        const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
-        return {
-          start: lastMonth.toISOString().split('T')[0],
-          end: lastMonthEnd.toISOString().split('T')[0]
-        }
-      default: // current
-        return null
-    }
-  }
-
-  const dateRange = getDateRange()
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -223,7 +204,7 @@ export default function Budgets() {
       ) : (
         <div className="space-y-4">
           {budgets.items.map((budget: Budget) => {
-            const progress = progressData?.find((p: any) => p?.id === budget.id)
+            const progress = progressData?.find((p: BudgetProgress) => p?.id === budget.id)
             const displayBudget = progress || budget
 
             return (

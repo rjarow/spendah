@@ -1,26 +1,66 @@
 """Service for alert detection and management."""
 
+import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uuid
+import json
 
 from app.models.alert import Alert, AlertType, Severity, AlertSettings
 from app.models.transaction import Transaction
-from app.models.recurring import RecurringGroup
+from app.models.recurring import RecurringGroup, Frequency
 from app.models.category import Category
 from app.ai.client import get_ai_client
 from app.ai.prompts import (
-    ANOMALY_DETECTION_SYSTEM, ANOMALY_DETECTION_USER,
-    SUBSCRIPTION_REVIEW_SYSTEM, SUBSCRIPTION_REVIEW_USER,
-    ANNUAL_CHARGE_DETECTION_SYSTEM, ANNUAL_CHARGE_DETECTION_USER
+    ANOMALY_DETECTION_SYSTEM,
+    ANOMALY_DETECTION_USER,
+    SUBSCRIPTION_REVIEW_SYSTEM,
+    SUBSCRIPTION_REVIEW_USER,
+    ANNUAL_CHARGE_DETECTION_SYSTEM,
+    ANNUAL_CHARGE_DETECTION_USER,
 )
-from app.models.recurring import Frequency
-import json
-from datetime import date
 from app.services.tokenization_service import TokenizationService
+
+logger = logging.getLogger(__name__)
+
+GENERIC_DESCRIPTIONS = [
+    "online payment",
+    "check",
+    "transfer",
+    "debit",
+    "credit card",
+    "withdrawal",
+    "deposit",
+    "payment thank",
+    "ach",
+    "wire",
+    "auto pay",
+    "autopay",
+    "bill pay",
+    "pos purchase",
+    "pos debit",
+    "recurring",
+    "subscription",
+    "salary",
+    "payroll",
+    "direct dep",
+    "venmo",
+    "paypal",
+    "zelle",
+    "cash app",
+    "square",
+]
+
+
+def is_likely_merchant(description: str) -> bool:
+    """Check if a description looks like an actual merchant name vs generic transaction type."""
+    desc_lower = description.lower().strip()
+    if len(desc_lower) < 3:
+        return False
+    return not any(generic in desc_lower for generic in GENERIC_DESCRIPTIONS)
 
 
 def get_or_create_settings(db: Session) -> AlertSettings:
@@ -45,20 +85,24 @@ def get_category_average(db: Session, category_id: str, months: int = 3) -> floa
     """Get average spending for a category over the last N months."""
     cutoff = datetime.now() - timedelta(days=months * 30)
 
-    result = db.query(func.avg(func.abs(Transaction.amount))).filter(
-        Transaction.category_id == category_id,
-        Transaction.amount < 0,
-        Transaction.date >= cutoff.date()
-    ).scalar()
+    result = (
+        db.query(func.avg(func.abs(Transaction.amount)))
+        .filter(
+            Transaction.category_id == category_id,
+            Transaction.amount < 0,
+            Transaction.date >= cutoff.date(),
+        )
+        .scalar()
+    )
 
     return float(result) if result else 0.0
 
 
-def is_first_time_merchant(db: Session, merchant: str, exclude_txn_id: str = None) -> bool:
+def is_first_time_merchant(
+    db: Session, merchant: str, exclude_txn_id: str = None
+) -> bool:
     """Check if this is the first transaction from this merchant."""
-    query = db.query(Transaction).filter(
-        Transaction.clean_merchant == merchant
-    )
+    query = db.query(Transaction).filter(Transaction.clean_merchant == merchant)
     if exclude_txn_id:
         query = query.filter(Transaction.id != exclude_txn_id)
 
@@ -68,17 +112,21 @@ def is_first_time_merchant(db: Session, merchant: str, exclude_txn_id: str = Non
 def get_recurring_for_merchant(db: Session, merchant: str) -> Optional[RecurringGroup]:
     """Find recurring group matching this merchant."""
     # Simple pattern match - could be improved with fuzzy matching
-    return db.query(RecurringGroup).filter(
-        RecurringGroup.merchant_pattern.ilike(f"%{merchant}%"),
-        RecurringGroup.is_active == True
-    ).first()
+    return (
+        db.query(RecurringGroup)
+        .filter(
+            RecurringGroup.merchant_pattern.ilike(f"%{merchant}%"),
+            RecurringGroup.is_active == True,
+        )
+        .first()
+    )
 
 
 def check_price_increase(
     db: Session,
     merchant: str,
     new_amount: float,
-    recurring_group: Optional[RecurringGroup]
+    recurring_group: Optional[RecurringGroup],
 ) -> Optional[Dict[str, Any]]:
     """Check if this transaction represents a price increase from a recurring charge."""
     if not recurring_group:
@@ -91,21 +139,32 @@ def check_price_increase(
                 "previous_amount": old_amount,
                 "new_amount": new_amount,
                 "increase": new_amount - old_amount,
-                "percent_increase": ((new_amount - old_amount) / old_amount) * 100
+                "percent_increase": ((new_amount - old_amount) / old_amount) * 100,
             }
 
     return None
 
 
 def analyze_transaction_for_alerts(
-    db: Session,
-    transaction: Transaction
+    db: Session, transaction: Transaction
 ) -> Optional[Alert]:
     """
     Analyze a transaction for anomalies and create an alert if needed.
     Uses AI for complex analysis, rule-based for simple checks.
     """
     settings = get_or_create_settings(db)
+    return analyze_transaction_for_alerts_with_settings(db, transaction, settings)
+
+
+def analyze_transaction_for_alerts_with_settings(
+    db: Session, transaction: Transaction, settings: Optional[AlertSettings]
+) -> Optional[Alert]:
+    """
+    Analyze a transaction for anomalies using pre-fetched settings.
+    This avoids N queries per transaction during bulk import.
+    """
+    if settings is None:
+        settings = get_or_create_settings(db)
 
     if not settings.alerts_enabled:
         return None
@@ -113,43 +172,50 @@ def analyze_transaction_for_alerts(
     amount = abs(float(transaction.amount))
     merchant = transaction.clean_merchant or transaction.raw_description
 
-    # Get context
-    category_avg = get_category_average(db, transaction.category_id) if transaction.category_id else 0
+    is_income = float(transaction.amount) > 0
+    if is_income:
+        return None
+
+    if not is_likely_merchant(merchant):
+        return None
+
+    category_avg = (
+        get_category_average(db, transaction.category_id)
+        if transaction.category_id
+        else 0
+    )
     is_new_merchant = is_first_time_merchant(db, merchant, transaction.id)
     recurring = get_recurring_for_merchant(db, merchant)
     price_increase = check_price_increase(db, merchant, amount, recurring)
 
-    # Rule-based checks first (faster, no AI needed)
-
-    # Check 1: Price increase on recurring
     if price_increase:
         alert = Alert(
             id=str(uuid.uuid4()),
             type=AlertType.price_increase,
             severity=Severity.warning,
             title=f"Price increase: {merchant}",
-            description=f"Was ${price_increase['previous_amount']:.2f}/mo → Now ${price_increase['new_amount']:.2f}/mo (+${price_increase['increase']:.2f})",
+            description=f"Was ${price_increase['previous_amount']:.2f}/mo -> Now ${price_increase['new_amount']:.2f}/mo (+${price_increase['increase']:.2f})",
             transaction_id=str(transaction.id),
             recurring_group_id=str(recurring.id) if recurring else None,
-            metadata={
-                "previous_amount": price_increase['previous_amount'],
-                "new_amount": price_increase['new_amount'],
-                "increase": price_increase['increase'],
-                "percent_increase": price_increase['percent_increase']
-            }
+            alert_metadata={
+                "previous_amount": price_increase["previous_amount"],
+                "new_amount": price_increase["new_amount"],
+                "increase": price_increase["increase"],
+                "percent_increase": price_increase["percent_increase"],
+            },
         )
         db.add(alert)
         db.commit()
         return alert
 
-    # Check 2: Large purchase (rule-based)
     multiplier = float(settings.large_purchase_multiplier)
     if category_avg > 0 and amount > category_avg * multiplier:
         actual_multiplier = amount / category_avg
         severity = Severity.attention if actual_multiplier > 5 else Severity.warning
 
-        # Get category name
-        category = db.query(Category).filter(Category.id == transaction.category_id).first()
+        category = (
+            db.query(Category).filter(Category.id == transaction.category_id).first()
+        )
         category_name = category.name if category else "this category"
 
         alert = Alert(
@@ -159,17 +225,16 @@ def analyze_transaction_for_alerts(
             title=f"Large purchase: {merchant}",
             description=f"${amount:.2f} is {actual_multiplier:.1f}x your usual {category_name} spending of ${category_avg:.2f}",
             transaction_id=str(transaction.id),
-            metadata={
+            alert_metadata={
                 "amount": amount,
                 "category_avg": category_avg,
-                "multiplier": actual_multiplier
-            }
+                "multiplier": actual_multiplier,
+            },
         )
         db.add(alert)
         db.commit()
         return alert
 
-    # Check 3: Unusual merchant (first time, high amount)
     unusual_threshold = float(settings.unusual_merchant_threshold)
     if is_new_merchant and amount > unusual_threshold:
         alert = Alert(
@@ -179,11 +244,11 @@ def analyze_transaction_for_alerts(
             title=f"New merchant: {merchant}",
             description=f"First purchase at {merchant}: ${amount:.2f}",
             transaction_id=str(transaction.id),
-            metadata={
+            alert_metadata={
                 "amount": amount,
                 "threshold": unusual_threshold,
-                "is_first_time": True
-            }
+                "is_first_time": True,
+            },
         )
         db.add(alert)
         db.commit()
@@ -197,7 +262,7 @@ def get_alerts(
     is_read: Optional[bool] = None,
     is_dismissed: Optional[bool] = None,
     alert_type: Optional[str] = None,
-    limit: int = 50
+    limit: int = 50,
 ) -> List[Alert]:
     """Get alerts with optional filters."""
     query = db.query(Alert)
@@ -219,17 +284,18 @@ def get_alerts(
 
 def get_unread_count(db: Session) -> int:
     """Get count of unread, non-dismissed alerts."""
-    return db.query(Alert).filter(
-        Alert.is_read == False,
-        Alert.is_dismissed == False
-    ).count()
+    return (
+        db.query(Alert)
+        .filter(Alert.is_read == False, Alert.is_dismissed == False)
+        .count()
+    )
 
 
 def mark_all_read(db: Session) -> int:
     """Mark all alerts as read. Returns count updated."""
-    result = db.query(Alert).filter(
-        Alert.is_read == False
-    ).update({Alert.is_read: True})
+    result = (
+        db.query(Alert).filter(Alert.is_read == False).update({Alert.is_read: True})
+    )
     db.commit()
     return result
 
@@ -243,10 +309,12 @@ def create_new_recurring_alert(db: Session, recurring_group: RecurringGroup) -> 
         title=f"New subscription: {recurring_group.name}",
         description=f"Detected new recurring charge: ${recurring_group.expected_amount:.2f}/{recurring_group.frequency.value}",
         recurring_group_id=str(recurring_group.id),
-        metadata={
-            "amount": float(recurring_group.expected_amount) if recurring_group.expected_amount else None,
-            "frequency": recurring_group.frequency.value
-        }
+        alert_metadata={
+            "amount": float(recurring_group.expected_amount)
+            if recurring_group.expected_amount
+            else None,
+            "frequency": recurring_group.frequency.value,
+        },
     )
     db.add(alert)
     db.commit()
@@ -261,9 +329,7 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
     settings = get_or_create_settings(db)
 
     # Get active recurring charges
-    recurring = db.query(RecurringGroup).filter(
-        RecurringGroup.is_active == True
-    ).all()
+    recurring = db.query(RecurringGroup).filter(RecurringGroup.is_active == True).all()
 
     if not recurring:
         return {
@@ -271,7 +337,7 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
             "total_yearly_cost": 0,
             "subscription_count": 0,
             "insights": [],
-            "summary": "No active subscriptions found."
+            "summary": "No active subscriptions found.",
         }
 
     # Calculate costs
@@ -293,36 +359,52 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
     total_yearly = total_monthly * 12
 
     # Prepare data for AI
-    recurring_json = json.dumps([
-        {
-            "id": str(r.id),
-            "name": r.name,
-            "merchant_pattern": r.merchant_pattern,
-            "amount": float(r.expected_amount) if r.expected_amount else 0,
-            "frequency": r.frequency.value,
-            "last_seen": r.last_seen_date.isoformat() if r.last_seen_date else None,
-            "next_expected": r.next_expected_date.isoformat() if r.next_expected_date else None,
-        }
-        for r in recurring
-    ], indent=2)
+    recurring_json = json.dumps(
+        [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "merchant_pattern": r.merchant_pattern,
+                "amount": float(r.expected_amount) if r.expected_amount else 0,
+                "frequency": r.frequency.value,
+                "last_seen": r.last_seen_date.isoformat() if r.last_seen_date else None,
+                "next_expected": r.next_expected_date.isoformat()
+                if r.next_expected_date
+                else None,
+            }
+            for r in recurring
+        ],
+        indent=2,
+    )
 
-    # Get transaction activity (simplified - count per merchant)
+    # Get transaction activity (batch query to avoid N+1)
     cutoff = datetime.now() - timedelta(days=90)
+    recurring_ids = [str(r.id) for r in recurring]
 
-    activity = {}
-    for r in recurring:
-        count = db.query(Transaction).filter(
-            Transaction.recurring_group_id == r.id,
-            Transaction.date >= cutoff.date()
-        ).count()
-        activity[r.name] = count
+    activity_results = (
+        db.query(Transaction.recurring_group_id, func.count(Transaction.id))
+        .filter(
+            Transaction.recurring_group_id.in_(recurring_ids),
+            Transaction.date >= cutoff.date(),
+        )
+        .group_by(Transaction.recurring_group_id)
+        .all()
+    )
 
-    activity_json = json.dumps(activity, indent=2)
+    activity = {str(r.id): 0 for r in recurring}
+    for group_id, count in activity_results:
+        activity[str(group_id)] = count
+
+    activity_by_name = {r.name: activity.get(str(r.id), 0) for r in recurring}
+    activity_json = json.dumps(activity_by_name, indent=2)
 
     # Get last review date
-    last_review = db.query(Alert).filter(
-        Alert.type == AlertType.subscription_review
-    ).order_by(Alert.created_at.desc()).first()
+    last_review = (
+        db.query(Alert)
+        .filter(Alert.type == AlertType.subscription_review)
+        .order_by(Alert.created_at.desc())
+        .first()
+    )
 
     last_review_date = last_review.created_at.isoformat() if last_review else "Never"
 
@@ -337,14 +419,16 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
     for r in recurring_data:
         tokenized = dict(r)
         if r.get("merchant_pattern"):
-            tokenized["merchant_pattern"] = tokenizer.tokenize_merchant(r["merchant_pattern"])
+            tokenized["merchant_pattern"] = tokenizer.tokenize_merchant(
+                r["merchant_pattern"]
+            )
         tokenized_recurring.append(tokenized)
     recurring_json_tokenized = json.dumps(tokenized_recurring, indent=2)
 
     user_prompt = SUBSCRIPTION_REVIEW_USER.format(
         recurring_json=recurring_json_tokenized,
         activity_json=activity_json,
-        last_review_date=last_review_date
+        last_review_date=last_review_date,
     )
 
     try:
@@ -352,7 +436,7 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
             system_prompt=SUBSCRIPTION_REVIEW_SYSTEM,
             user_prompt=user_prompt,
             temperature=0.3,
-            max_tokens=2000
+            max_tokens=2000,
         )
 
         insights = result.get("insights", [])
@@ -366,7 +450,7 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
                         insight[key] = tokenizer.detokenize(value)
 
     except Exception as e:
-        print(f"Subscription review AI failed: {e}")
+        logger.warning(f"Subscription review AI failed: {e}")
         insights = []
         summary = "Unable to generate AI insights. Review your subscriptions manually."
 
@@ -377,12 +461,12 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
         severity=Severity.info,
         title=f"Subscription Review: {len(recurring)} active subscriptions",
         description=f"Monthly: ${total_monthly:.2f} | Yearly: ${total_yearly:.2f}. {summary}",
-        metadata={
+        alert_metadata={
             "total_monthly": total_monthly,
             "total_yearly": total_yearly,
             "subscription_count": len(recurring),
-            "insights": insights
-        }
+            "insights": insights,
+        },
     )
     db.add(alert)
 
@@ -398,7 +482,7 @@ async def run_subscription_review(db: Session) -> Dict[str, Any]:
         "subscription_count": len(recurring),
         "insights": insights,
         "summary": summary,
-        "alert_id": str(alert.id)
+        "alert_id": str(alert.id),
     }
 
 
@@ -406,11 +490,16 @@ def get_upcoming_renewals(db: Session, days: int = 30) -> List[Dict[str, Any]]:
     """Get recurring charges expected in the next N days."""
     cutoff = date.today() + timedelta(days=days)
 
-    recurring = db.query(RecurringGroup).filter(
-        RecurringGroup.is_active == True,
-        RecurringGroup.next_expected_date != None,
-        RecurringGroup.next_expected_date <= cutoff
-    ).order_by(RecurringGroup.next_expected_date).all()
+    recurring = (
+        db.query(RecurringGroup)
+        .filter(
+            RecurringGroup.is_active == True,
+            RecurringGroup.next_expected_date != None,
+            RecurringGroup.next_expected_date <= cutoff,
+        )
+        .order_by(RecurringGroup.next_expected_date)
+        .all()
+    )
 
     renewals = []
     total = 0
@@ -419,20 +508,19 @@ def get_upcoming_renewals(db: Session, days: int = 30) -> List[Dict[str, Any]]:
         amount = float(r.expected_amount) if r.expected_amount else 0
         days_until = (r.next_expected_date - date.today()).days
 
-        renewals.append({
-            "recurring_group_id": str(r.id),
-            "merchant": r.name,
-            "amount": amount,
-            "frequency": r.frequency.value,
-            "next_date": r.next_expected_date.isoformat(),
-            "days_until": days_until
-        })
+        renewals.append(
+            {
+                "recurring_group_id": str(r.id),
+                "merchant": r.name,
+                "amount": amount,
+                "frequency": r.frequency.value,
+                "next_date": r.next_expected_date.isoformat(),
+                "days_until": days_until,
+            }
+        )
         total += amount
 
-    return {
-        "renewals": renewals,
-        "total_upcoming_30_days": total
-    }
+    return {"renewals": renewals, "total_upcoming_30_days": total}
 
 
 async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
@@ -446,24 +534,32 @@ async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
     # Get transactions from last 18 months
     cutoff = date.today() - timedelta(days=548)
 
-    transactions = db.query(Transaction).filter(
-        Transaction.date >= cutoff,
-        Transaction.amount < 0,
-        func.abs(Transaction.amount) > 20  # Skip small charges
-    ).order_by(Transaction.date.desc()).all()
+    transactions = (
+        db.query(Transaction)
+        .filter(
+            Transaction.date >= cutoff,
+            Transaction.amount < 0,
+            func.abs(Transaction.amount) > 20,  # Skip small charges
+        )
+        .order_by(Transaction.date.desc())
+        .all()
+    )
 
     if len(transactions) < 10:
         return []
 
-    txn_json = json.dumps([
-        {
-            "id": str(t.id),
-            "date": t.date.isoformat(),
-            "amount": float(t.amount),
-            "merchant": t.clean_merchant or t.raw_description,
-        }
-        for t in transactions
-    ], indent=2)
+    txn_json = json.dumps(
+        [
+            {
+                "id": str(t.id),
+                "date": t.date.isoformat(),
+                "amount": float(t.amount),
+                "merchant": t.clean_merchant or t.raw_description,
+            }
+            for t in transactions
+        ],
+        indent=2,
+    )
 
     client = get_ai_client()
     client._db = db  # Set db session for privacy settings
@@ -480,8 +576,7 @@ async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
     txn_json_tokenized = json.dumps(tokenized_transactions, indent=2)
 
     user_prompt = ANNUAL_CHARGE_DETECTION_USER.format(
-        transactions_json=txn_json_tokenized,
-        current_date=date.today().isoformat()
+        transactions_json=txn_json_tokenized, current_date=date.today().isoformat()
     )
 
     try:
@@ -489,7 +584,7 @@ async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
             system_prompt=ANNUAL_CHARGE_DETECTION_SYSTEM,
             user_prompt=user_prompt,
             temperature=0.1,
-            max_tokens=1500
+            max_tokens=1500,
         )
 
         annual_subs = result.get("annual_subscriptions", [])
@@ -501,7 +596,7 @@ async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
                     sub[key] = tokenizer.detokenize(value)
 
     except Exception as e:
-        print(f"Annual charge detection failed: {e}")
+        logger.warning(f"Annual charge detection failed: {e}")
         return []
 
     # Create alerts for upcoming annual charges
@@ -516,7 +611,7 @@ async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
 
         try:
             next_date = datetime.strptime(predicted_date, "%Y-%m-%d").date()
-        except:
+        except ValueError:
             continue
 
         days_until = (next_date - date.today()).days
@@ -529,13 +624,13 @@ async def detect_annual_charges(db: Session) -> List[Dict[str, Any]]:
                 severity=Severity.info,
                 title=f"Annual renewal: {sub['merchant']}",
                 description=f"${sub['amount']:.2f} expected in {days_until} days (around {predicted_date})",
-                metadata={
+                alert_metadata={
                     "merchant": sub["merchant"],
                     "amount": sub["amount"],
                     "predicted_date": predicted_date,
                     "days_until": days_until,
-                    "confidence": sub.get("confidence", 0)
-                }
+                    "confidence": sub.get("confidence", 0),
+                },
             )
             db.add(alert)
             created_alerts.append(sub)

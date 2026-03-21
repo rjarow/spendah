@@ -22,7 +22,7 @@ from app.services.budget_alerts import check_all_budget_alerts
 router = APIRouter(tags=["budgets"])
 
 
-@router.get("", response_model=BudgetList)
+@router.get("")
 def list_budgets(
     include_progress: bool = Query(False, description="Include progress calculations"),
     db: Session = Depends(get_db)
@@ -30,14 +30,13 @@ def list_budgets(
     """List all active budgets."""
     budgets = db.query(Budget).filter(Budget.is_active == True).all()
 
+    if include_progress:
+        progress_list = get_all_budgets_progress(db)
+        return {"items": progress_list, "total": len(progress_list)}
+
     items = []
     for budget in budgets:
-        if include_progress:
-            progress = get_budget_progress(db, budget.id)
-            if progress:
-                items.append(BudgetResponse(**budget.__dict__, category=budget.category))
-        else:
-            items.append(BudgetResponse(**budget.__dict__, category=budget.category))
+        items.append(BudgetResponse(**budget.__dict__, category=budget.category))
 
     return BudgetList(items=items, total=len(items))
 

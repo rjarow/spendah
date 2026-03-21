@@ -2,7 +2,7 @@
  * API client for making requests to backend.
  */
 
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 import type {
   Account,
   AccountCreate,
@@ -18,6 +18,8 @@ import type {
   TransactionListResponse,
   AISettings,
   SettingsResponse,
+  TaskModels,
+  TaskModelsUpdate,
   DashboardSummary,
   MonthTrend,
   RecentTransaction,
@@ -29,6 +31,17 @@ import type {
   NetWorthSummary,
   NetWorthBreakdown,
   NetWorthHistoryPoint,
+  Alert,
+  AlertsListResponse,
+  AlertSettings,
+  SubscriptionInsight,
+  SubscriptionReviewResponse,
+  UpcomingRenewal,
+  UpcomingRenewalsResponse,
+  Budget,
+  BudgetProgress,
+  BudgetCreate,
+  BudgetUpdate,
 } from '@/types'
 
 const API_PORT = import.meta.env.VITE_API_PORT || '8000'
@@ -40,6 +53,15 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 })
+
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<{ detail?: string }>) => {
+    const message = error.response?.data?.detail || error.message || 'An unexpected error occurred'
+    console.error('API Error:', message)
+    return Promise.reject(new Error(message))
+  }
+)
 
 // Health check
 export const healthCheck = async () => {
@@ -201,8 +223,27 @@ export const updateAISettings = async (data: {
   return response.data
 }
 
+export const updateAPIKeys = async (data: {
+  openrouter_api_key?: string
+  openai_api_key?: string
+  anthropic_api_key?: string
+}) => {
+  const response = await api.patch('/settings/api-keys', data)
+  return response.data
+}
+
+export const fetchProviderModels = async (providerId: string) => {
+  const response = await api.get(`/settings/providers/${providerId}/models`)
+  return response.data as { models: Array<{ id: string; name: string; label: string }> }
+}
+
 export const testAIConnection = async () => {
   const response = await api.post<{status: string; response: string}>('/settings/ai/test')
+  return response.data
+}
+
+export const updateTaskModels = async (data: TaskModelsUpdate) => {
+  const response = await api.patch<TaskModels>('/settings/task-models', data)
   return response.data
 }
 
@@ -213,39 +254,6 @@ export const getRecurringGroups = async (includeInactive: boolean = false) => {
 }
 
 // Alerts
-export interface Alert {
-  id: string
-  type: 'large_purchase' | 'price_increase' | 'new_recurring' | 'unusual_merchant' | 'annual_charge'
-  severity: 'info' | 'warning' | 'attention'
-  title: string
-  description: string
-  transaction_id: string | null
-  recurring_group_id: string | null
-  metadata: Record<string, any> | null
-  is_read: boolean
-  is_dismissed: boolean
-  action_taken: string | null
-  created_at: string
-}
-
-export interface AlertsListResponse {
-  items: Alert[]
-  unread_count: number
-  total: number
-}
-
-export interface AlertSettings {
-  id: string
-  large_purchase_threshold: number | null
-  large_purchase_multiplier: number
-  unusual_merchant_threshold: number
-  subscription_review_days: number
-  annual_charge_warning_days: number
-  alerts_enabled: boolean
-  created_at: string
-  updated_at: string | null
-}
-
 export async function getAlerts(params?: {
   is_read?: boolean
   is_dismissed?: boolean
@@ -339,7 +347,7 @@ export const applyDetection = async (_detectionIndex: number) => {
 }
 
 export const unmarkTransactionRecurring = async (_transactionId: string) => {
-  const response = await api.post('/recurring/transactions/${_transactionId}/unmark')
+  const response = await api.post(`/recurring/transactions/${_transactionId}/unmark`)
   return response.data
 }
 
@@ -353,40 +361,6 @@ export const markTransactionRecurring = async (_transactionId: string, data: {
 }
 
 // Subscription Intelligence
-
-export interface SubscriptionInsight {
-  type: 'unused' | 'price_increase' | 'high_cost' | 'annual_upcoming' | 'duplicate'
-  recurring_group_id: string
-  merchant: string
-  amount: number
-  frequency: string
-  insight: string
-  recommendation: string
-}
-
-export interface SubscriptionReviewResponse {
-  total_monthly_cost: number
-  total_yearly_cost: number
-  subscription_count: number
-  insights: SubscriptionInsight[]
-  summary: string
-  alert_id?: string
-}
-
-export interface UpcomingRenewal {
-  recurring_group_id: string
-  merchant: string
-  amount: number
-  frequency: string
-  next_date: string
-  days_until: number
-}
-
-export interface UpcomingRenewalsResponse {
-  renewals: UpcomingRenewal[]
-  total_upcoming_30_days: number
-}
-
 export async function triggerSubscriptionReview() {
   const response = await api.post('/alerts/subscription-review')
   return response.data as SubscriptionReviewResponse
@@ -403,43 +377,6 @@ export async function detectAnnualCharges() {
 }
 
 // Budgets
-export interface Budget {
-  id: string
-  category_id: string | null
-  category_name: string
-  amount: number
-  period: 'weekly' | 'monthly' | 'yearly'
-  start_date: string
-  current_period_spent: number
-  remaining: number
-  percent_used: number
-  is_over_budget: boolean
-  created_at: string
-  updated_at: string
-}
-
-export interface BudgetProgress {
-  budget_id: string
-  spent: number
-  remaining: number
-  percent_used: number
-  is_over_budget: boolean
-}
-
-export interface BudgetCreate {
-  category_id?: string | null
-  amount: number
-  period: 'weekly' | 'monthly' | 'yearly'
-  start_date: string
-}
-
-export interface BudgetUpdate {
-  category_id?: string | null
-  amount?: number
-  period?: 'weekly' | 'monthly' | 'yearly'
-  start_date?: string
-}
-
 export const getBudgets = async (includeProgress: boolean = false) => {
   const response = await api.get<{ items: Budget[]; total: number }>('/budgets', {
     params: { include_progress: includeProgress },
@@ -500,24 +437,81 @@ export const updateAccountBalance = async (id: string, balance: number): Promise
 
 // Privacy API
 export const privacyApi = {
-  getSettings: async (): Promise<PrivacySettings> =>
-    fetch(`${API_BASE}/privacy/settings`).then(r => r.json()),
+  getSettings: async (): Promise<PrivacySettings> => {
+    const response = await api.get<PrivacySettings>('/privacy/settings')
+    return response.data
+  },
 
   updateSettings: async (settings: Partial<{
     obfuscation_enabled?: boolean
     provider_settings?: ProviderPrivacyConfig[]
-  }>): Promise<PrivacySettings> =>
-    fetch(`${API_BASE}/privacy/settings`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings),
-    }).then(r => r.json()),
+  }>): Promise<PrivacySettings> => {
+    const response = await api.patch<PrivacySettings>('/privacy/settings', settings)
+    return response.data
+  },
 
-  preview: async (text: string): Promise<{ original: string; tokenized: string }> =>
-    fetch(`${API_BASE}/privacy/preview?text=${encodeURIComponent(text)}`).then(r => r.json()),
+  preview: async (text: string): Promise<{ original: string; tokenized: string }> => {
+    const response = await api.get<{ original: string; tokenized: string }>('/privacy/preview', { params: { text } })
+    return response.data
+  },
 
-  getStats: async (): Promise<TokenStats> =>
-    fetch(`${API_BASE}/privacy/stats`).then(r => r.json()),
+  getStats: async (): Promise<TokenStats> => {
+    const response = await api.get<TokenStats>('/privacy/stats')
+    return response.data
+  },
+}
+
+// Coach API
+export const coachApi = {
+  chat: async (message: string, conversationId?: string) => {
+    const response = await api.post('/coach/chat', {
+      message,
+      conversation_id: conversationId
+    })
+    return response.data
+  },
+
+  getConversations: async (limit: number = 20, offset: number = 0) => {
+    const response = await api.get('/coach/conversations', {
+      params: { limit, offset }
+    })
+    return response.data
+  },
+
+  getConversation: async (id: string) => {
+    const response = await api.get(`/coach/conversations/${id}`)
+    return response.data
+  },
+
+  archiveConversation: async (id: string) => {
+    const response = await api.post(`/coach/conversations/${id}/archive`)
+    return response.data
+  },
+
+  deleteConversation: async (id: string) => {
+    const response = await api.delete(`/coach/conversations/${id}`)
+    return response.data
+  },
+
+  getQuickQuestions: async () => {
+    const response = await api.get('/coach/quick-questions')
+    return response.data
+  },
+}
+
+// Re-export types for convenience (canonical definitions are in @/types)
+export type {
+  Alert,
+  AlertsListResponse,
+  AlertSettings,
+  SubscriptionInsight,
+  SubscriptionReviewResponse,
+  UpcomingRenewal,
+  UpcomingRenewalsResponse,
+  Budget,
+  BudgetProgress,
+  BudgetCreate,
+  BudgetUpdate,
 }
 
 export default api

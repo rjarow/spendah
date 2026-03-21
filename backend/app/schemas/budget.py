@@ -24,6 +24,7 @@ class BudgetCreate(BudgetBase):
 
 class BudgetUpdate(BaseModel):
     """Schema for updating a budget."""
+    category_id: Optional[str] = None
     amount: Optional[Decimal] = Field(None, gt=0)
     period: Optional[BudgetPeriod] = None
     start_date: Optional[datetime] = None

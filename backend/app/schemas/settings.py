@@ -18,6 +18,32 @@ class AISettingsUpdate(BaseModel):
     detect_format: Optional[bool] = None
 
 
+class TaskModels(BaseModel):
+    categorize: Optional[str] = None
+    merchant_clean: Optional[str] = None
+    format_detect: Optional[str] = None
+    coach: Optional[str] = None
+
+
+class TaskModelsUpdate(BaseModel):
+    categorize: Optional[str] = None
+    merchant_clean: Optional[str] = None
+    format_detect: Optional[str] = None
+    coach: Optional[str] = None
+
+
+class APIKeys(BaseModel):
+    openrouter_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+
+
+class APIKeysUpdate(BaseModel):
+    openrouter_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+
+
 class AvailableProvider(BaseModel):
     id: str
     name: str
@@ -27,4 +53,6 @@ class AvailableProvider(BaseModel):
 
 class SettingsResponse(BaseModel):
     ai: AISettings
+    api_keys: APIKeys
+    task_models: TaskModels
     available_providers: List[AvailableProvider]

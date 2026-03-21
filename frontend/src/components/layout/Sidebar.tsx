@@ -9,6 +9,7 @@ import {
   Settings,
   Target,
   DollarSign,
+  MessageCircle,
 } from 'lucide-react'
 
 const navigation = [
@@ -20,6 +21,7 @@ const navigation = [
   { name: 'Net Worth', href: '/net-worth', icon: DollarSign },
   { name: 'Import', href: '/import', icon: Upload },
   { name: 'Insights', href: '/insights', icon: LineChart },
+  { name: 'Coach', href: '/coach', icon: MessageCircle },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 

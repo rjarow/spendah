@@ -11,24 +11,7 @@ from app.models.alert import Alert, AlertType, Severity, AlertSettings
 from app.models.budget import Budget, BudgetPeriod
 from app.models.category import Category
 from app.models.transaction import Transaction
-
-
-def get_or_create_settings(db: Session) -> AlertSettings:
-    """Get alert settings, creating default if none exist."""
-    settings = db.query(AlertSettings).first()
-    if not settings:
-        settings = AlertSettings(
-            id=str(uuid.uuid4()),
-            large_purchase_multiplier=Decimal("3.0"),
-            unusual_merchant_threshold=Decimal("200.0"),
-            budget_warning_threshold=80,
-            budget_alerts_enabled=True,
-            alerts_enabled=True,
-        )
-        db.add(settings)
-        db.commit()
-        db.refresh(settings)
-    return settings
+from app.services.alerts_service import get_or_create_settings
 
 
 def get_budget_spending(db: Session, budget: Budget) -> Dict[str, Any]:
@@ -92,9 +75,9 @@ def check_budget_alerts(db: Session, budget_id: str) -> Optional[Alert]:
             Alert.type == AlertType.budget_exceeded,
             Alert.budget_id == budget_id
         ).order_by(Alert.created_at.desc()).first()
-        
+
         if existing_alert:
-            return existing_alert
+            return None
         
         alert = Alert(
             id=str(uuid.uuid4()),
@@ -103,7 +86,7 @@ def check_budget_alerts(db: Session, budget_id: str) -> Optional[Alert]:
             title=f"Budget exceeded: {budget.category.name if budget.category else 'Uncategorized'}",
             description=f"${spending_data['spent']:.2f} of ${amount:.2f} (${percent_used:.0f}% used)",
             budget_id=budget_id,
-            metadata={
+            alert_metadata={
                 "budget_id": budget_id,
                 "category_id": budget.category_id,
                 "category_name": budget.category.name if budget.category else "Uncategorized",
@@ -123,9 +106,9 @@ def check_budget_alerts(db: Session, budget_id: str) -> Optional[Alert]:
             Alert.type == AlertType.budget_warning,
             Alert.budget_id == budget_id
         ).order_by(Alert.created_at.desc()).first()
-        
+
         if existing_alert:
-            return existing_alert
+            return None
         
         alert = Alert(
             id=str(uuid.uuid4()),
@@ -134,7 +117,7 @@ def check_budget_alerts(db: Session, budget_id: str) -> Optional[Alert]:
             title=f"Budget approaching limit: {budget.category.name if budget.category else 'Uncategorized'}",
             description=f"${spending_data['spent']:.2f} of ${amount:.2f} (${percent_used:.0f}% used)",
             budget_id=budget_id,
-            metadata={
+            alert_metadata={
                 "budget_id": budget_id,
                 "category_id": budget.category_id,
                 "category_name": budget.category.name if budget.category else "Uncategorized",

@@ -11,6 +11,7 @@ from app.database import Base
 
 class ImportStatus(str, enum.Enum):
     """Import status enumeration."""
+
     pending = "pending"
     processing = "processing"
     completed = "completed"
@@ -24,7 +25,7 @@ class ImportLog(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     filename = Column(String(255), nullable=False)
-    account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False)
+    account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True)
     status = Column(Enum(ImportStatus), nullable=False, default=ImportStatus.pending)
     transactions_imported = Column(Integer, default=0, nullable=False)
     transactions_skipped = Column(Integer, default=0, nullable=False)

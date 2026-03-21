@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from app.database import get_db
+from app.dependencies import get_db
 from app.schemas.privacy import (
     PrivacySettingsResponse,
     PrivacySettingsUpdate,
@@ -117,6 +117,40 @@ def list_tokens(
         )
         for t in tokens
     ]
+
+
+@router.post("/tokenize")
+def tokenize_merchants(
+    request: dict,
+    db: Session = Depends(get_db)
+):
+    """Tokenize a list of merchant names."""
+    merchants = request.get("merchants", [])
+    token_service = TokenizationService(db)
+
+    tokenized = []
+    for merchant in merchants:
+        token = token_service.tokenize_merchant(merchant)
+        tokenized.append({"original": merchant, "token": token})
+
+    return {"tokenized": tokenized}
+
+
+@router.post("/detokenize")
+def detokenize_tokens(
+    request: dict,
+    db: Session = Depends(get_db)
+):
+    """Detokenize tokens back to original values."""
+    tokens = request.get("tokens", [])
+    token_service = TokenizationService(db)
+
+    detokenized = []
+    for token in tokens:
+        original = token_service._reverse_cache.get(token)
+        detokenized.append({"token": token, "original": original})
+
+    return {"detokenized": detokenized}
 
 
 @router.get("/stats", response_model=TokenStats)

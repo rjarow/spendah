@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from app.database import get_db
+from app.dependencies import get_db
 from app.models.recurring import RecurringGroup
 from app.schemas.recurring import (
     RecurringGroupResponse,
@@ -135,8 +135,6 @@ async def detect_recurring(
     Use AI to detect recurring patterns in transaction history.
     Returns detected patterns without creating groups yet.
     """
-    import sys
-    print("DEBUG: detect_recurring endpoint called", file=sys.stderr)
     patterns = await recurring_service.detect_recurring_patterns(db)
 
     detected = [

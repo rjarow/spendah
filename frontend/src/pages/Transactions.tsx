@@ -3,6 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getTransactions, getCategories, getAccounts, updateTransaction, bulkCategorize } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, formatDate } from '@/lib/formatters'
+import type { Transaction, Category, Account } from '@/types'
+
+interface FlatCategory extends Category {
+  parent_id?: string | null
+}
 
 export default function Transactions() {
   const queryClient = useQueryClient()
@@ -35,7 +40,7 @@ export default function Transactions() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => updateTransaction(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Partial<Transaction> }) => updateTransaction(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       setEditingId(null)
@@ -65,7 +70,7 @@ export default function Transactions() {
     if (selectedIds.size === transactions?.items?.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(transactions?.items?.map((t: any) => t.id)))
+      setSelectedIds(new Set(transactions?.items?.map((t: Transaction) => t.id)))
     }
   }
 
@@ -78,7 +83,7 @@ export default function Transactions() {
     }
   }
 
-  const flatCategories = categories?.items?.flatMap((cat: any) => [
+  const flatCategories: FlatCategory[] = categories?.items?.flatMap((cat: Category): FlatCategory[] => [
     cat,
     ...(cat.children || [])
   ]) || []
@@ -112,7 +117,7 @@ export default function Transactions() {
           }}
         >
           <option value="">All Accounts</option>
-          {accounts?.items?.map((acc: any) => (
+          {accounts?.items?.map((acc: Account) => (
             <option key={acc.id} value={acc.id}>{acc.name}</option>
           ))}
         </select>
@@ -126,7 +131,7 @@ export default function Transactions() {
           }}
         >
           <option value="">All Categories</option>
-          {flatCategories.map((cat: any) => (
+          {flatCategories.map((cat: FlatCategory) => (
             <option key={cat.id} value={cat.id}>
               {cat.parent_id ? '  ' : ''}{cat.name}
             </option>
@@ -144,7 +149,7 @@ export default function Transactions() {
             disabled={bulkCategorizeMutation.isPending}
           >
             <option value="">Change category...</option>
-            {flatCategories.map((cat: any) => (
+            {flatCategories.map((cat: FlatCategory) => (
               <option key={cat.id} value={cat.id}>{cat.name}</option>
             ))}
           </select>
@@ -175,7 +180,7 @@ export default function Transactions() {
             </tr>
           </thead>
           <tbody>
-            {transactions?.items?.map((txn: any) => (
+            {transactions?.items?.map((txn: Transaction) => (
               <tr key={txn.id} className="border-t hover:bg-gray-50">
                 <td className="px-4 py-3">
                   <input
@@ -210,7 +215,7 @@ export default function Transactions() {
                       autoFocus
                     >
                       <option value="">Uncategorized</option>
-                      {flatCategories.map((cat: any) => (
+                      {flatCategories.map((cat: FlatCategory) => (
                         <option key={cat.id} value={cat.id}>
                           {cat.parent_id ? '  ' : ''}{cat.name}
                         </option>
@@ -221,7 +226,7 @@ export default function Transactions() {
                       className="text-sm text-left hover:text-blue-600 flex items-center gap-1"
                       onClick={() => setEditingId(txn.id)}
                     >
-                      {flatCategories.find((c: any) => c.id === txn.category_id)?.name ||
+                      {flatCategories.find((c: FlatCategory) => c.id === txn.category_id)?.name ||
                         <span className="text-gray-400">Uncategorized</span>}
                       {txn.ai_categorized && (
                         <span className="text-xs text-purple-500" title="AI categorized">✨</span>

@@ -1,5 +1,6 @@
 """Service for recurring transaction detection and management."""
 
+import logging
 from typing import List, Optional, Dict, Any
 from datetime import date, timedelta
 from decimal import Decimal
@@ -12,7 +13,11 @@ from app.models.recurring import RecurringGroup, Frequency
 from app.models.transaction import Transaction
 from app.ai.client import get_ai_client
 from app.ai.prompts import RECURRING_DETECTION_SYSTEM, RECURRING_DETECTION_USER
+from app.ai.sanitization import sanitize_for_prompt
 from app.config import settings
+from app.services.tokenization_service import TokenizationService
+
+logger = logging.getLogger(__name__)
 
 
 async def detect_recurring_patterns(db: Session) -> List[Dict[str, Any]]:
@@ -20,35 +25,37 @@ async def detect_recurring_patterns(db: Session) -> List[Dict[str, Any]]:
     Use AI to detect recurring patterns in transaction history.
     Returns list of detected patterns with transaction IDs.
     """
-    # Get transactions from last 3 years for analysis (extended for testing with 2024 data)
-    cutoff_date = date.today() - timedelta(days=365*3)
+    cutoff_date = date.today() - timedelta(days=365 * 3)
 
-    transactions = db.query(Transaction).filter(
-        Transaction.date >= cutoff_date,
-        Transaction.amount < 0,  # Only expenses
-        Transaction.recurring_group_id.is_(None)  # Not already marked as recurring
-    ).order_by(Transaction.date.desc()).all()
-
-    print(f"DEBUG: cutoff_date = {cutoff_date}")
-    print(f"DEBUG: transactions matching criteria = {len(transactions)}")
+    transactions = (
+        db.query(Transaction)
+        .filter(
+            Transaction.date >= cutoff_date,
+            Transaction.amount < 0,
+            Transaction.recurring_group_id.is_(None),
+        )
+        .order_by(Transaction.date.desc())
+        .all()
+    )
 
     if len(transactions) < 5:
-        print("DEBUG: Less than 5 transactions, returning empty")
         return []
 
-    # Prepare transaction data for AI
-    txn_data = [
-        {
-            "id": str(t.id),
-            "date": t.date.isoformat(),
-            "amount": float(t.amount),
-            "merchant": t.clean_merchant or t.raw_description,
-            "raw_description": t.raw_description,
-        }
-        for t in transactions
-    ]
+    token_service = TokenizationService(db)
 
-    # Call AI for detection
+    txn_data = []
+    for t in transactions:
+        tokenized = token_service.tokenize_transaction_for_ai(
+            {
+                "id": str(t.id),
+                "date": t.date.isoformat(),
+                "amount": float(t.amount),
+                "merchant": t.clean_merchant or t.raw_description,
+            },
+            include_category=False,
+        )
+        txn_data.append(tokenized)
+
     client = get_ai_client()
 
     user_prompt = RECURRING_DETECTION_USER.format(
@@ -60,21 +67,19 @@ async def detect_recurring_patterns(db: Session) -> List[Dict[str, Any]]:
             system_prompt=RECURRING_DETECTION_SYSTEM,
             user_prompt=user_prompt,
             temperature=0.1,
-            max_tokens=2000
+            max_tokens=2000,
         )
 
         patterns = result.get("recurring_patterns", [])
-        # Filter to confidence > 0.5
         return [p for p in patterns if p.get("confidence", 0) > 0.5]
 
     except Exception as e:
-        print(f"Recurring detection failed: {e}")
+        logger.warning(f"Recurring detection failed: {e}")
         return []
 
 
 def create_recurring_group_from_detection(
-    db: Session,
-    detection: Dict[str, Any]
+    db: Session, detection: Dict[str, Any]
 ) -> RecurringGroup:
     """
     Create a recurring group from a detection result and link transactions.
@@ -94,20 +99,22 @@ def create_recurring_group_from_detection(
     # Link transactions to this group
     transaction_ids = detection.get("transaction_ids", [])
     if transaction_ids:
-        db.query(Transaction).filter(
-            Transaction.id.in_(transaction_ids)
-        ).update(
+        db.query(Transaction).filter(Transaction.id.in_(transaction_ids)).update(
             {Transaction.recurring_group_id: group.id, Transaction.is_recurring: True},
-            synchronize_session=False
+            synchronize_session=False,
         )
 
         # Set last_seen_date from most recent transaction
-        most_recent = db.query(func.max(Transaction.date)).filter(
-            Transaction.id.in_(transaction_ids)
-        ).scalar()
+        most_recent = (
+            db.query(func.max(Transaction.date))
+            .filter(Transaction.id.in_(transaction_ids))
+            .scalar()
+        )
         if most_recent:
             group.last_seen_date = most_recent
-            group.next_expected_date = calculate_next_expected(most_recent, group.frequency)
+            group.next_expected_date = calculate_next_expected(
+                most_recent, group.frequency
+            )
 
     db.commit()
     db.refresh(group)
@@ -152,8 +159,7 @@ def calculate_next_expected(last_date: date, frequency: Frequency) -> date:
 
 
 def get_recurring_groups(
-    db: Session,
-    include_inactive: bool = False
+    db: Session, include_inactive: bool = False
 ) -> List[RecurringGroup]:
     """Get all recurring groups with transaction counts."""
     query = db.query(RecurringGroup)
@@ -166,9 +172,9 @@ def get_recurring_groups(
 
 def get_group_transaction_count(db: Session, group_id: str) -> int:
     """Get count of transactions in a recurring group."""
-    return db.query(Transaction).filter(
-        Transaction.recurring_group_id == group_id
-    ).count()
+    return (
+        db.query(Transaction).filter(Transaction.recurring_group_id == group_id).count()
+    )
 
 
 def mark_transaction_recurring(
@@ -177,7 +183,7 @@ def mark_transaction_recurring(
     recurring_group_id: Optional[str] = None,
     create_new: bool = False,
     new_name: Optional[str] = None,
-    new_frequency: Optional[Frequency] = None
+    new_frequency: Optional[Frequency] = None,
 ) -> RecurringGroup:
     """
     Mark a transaction as recurring, either linking to existing group or creating new.
@@ -188,7 +194,11 @@ def mark_transaction_recurring(
 
     if recurring_group_id:
         # Link to existing group
-        group = db.query(RecurringGroup).filter(RecurringGroup.id == recurring_group_id).first()
+        group = (
+            db.query(RecurringGroup)
+            .filter(RecurringGroup.id == recurring_group_id)
+            .first()
+        )
         if not group:
             raise ValueError(f"Recurring group {recurring_group_id} not found")
     elif create_new:
@@ -220,7 +230,9 @@ def mark_transaction_recurring(
     # Update group's last_seen_date if this transaction is more recent
     if group.last_seen_date is None or transaction.date > group.last_seen_date:
         group.last_seen_date = transaction.date
-        group.next_expected_date = calculate_next_expected(transaction.date, group.frequency)
+        group.next_expected_date = calculate_next_expected(
+            transaction.date, group.frequency
+        )
 
     db.commit()
     db.refresh(group)

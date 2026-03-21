@@ -2,28 +2,31 @@
 
 import re
 import random
+import logging
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from sqlalchemy.orm import Session
+from sqlalchemy import func, Integer
 
 from app.models.token_map import TokenMap, TokenType, DateShift
 from app.models.privacy_settings import get_or_create_privacy_settings
+
+logger = logging.getLogger(__name__)
 
 
 class TokenizationService:
     """
     Handles tokenization and de-tokenization of PII.
-    
+
     Tokens are deterministic and persistent - the same input always produces
     the same token across sessions.
     """
 
-    # Patterns for extracting person names from descriptions
     PERSON_PATTERNS = [
-        (r'VENMO\s+(?:PAYMENT\s+)?([A-Z][A-Z\s]+)', 'VENMO'),
-        (r'ZELLE\s+(?:PAYMENT\s+)?(?:TO\s+|FROM\s+)?([A-Z][A-Z\s]+)', 'ZELLE'),
-        (r'PAYPAL\s+\*([A-Z][A-Z\s]+)', 'PAYPAL'),
-        (r'CASH\s+APP\s+\*([A-Z][A-Z\s]+)', 'CASH APP'),
+        (r"VENMO\s+(?:PAYMENT\s+)?([A-Z][A-Z\s]+)", "VENMO"),
+        (r"ZELLE\s+(?:PAYMENT\s+)?(?:TO\s+|FROM\s+)?([A-Z][A-Z\s]+)", "ZELLE"),
+        (r"PAYPAL\s+\*([A-Z][A-Z\s]+)", "PAYPAL"),
+        (r"CASH\s+APP\s+\*([A-Z][A-Z\s]+)", "CASH APP"),
     ]
 
     def __init__(self, db: Session):
@@ -50,7 +53,6 @@ class TokenizationService:
         if shift_record:
             self._date_shift = shift_record.shift_days
         else:
-            # Generate random shift between 500-1500 days
             self._date_shift = random.randint(500, 1500)
             shift_record = DateShift(id=1, shift_days=self._date_shift)
             self.db.add(shift_record)
@@ -62,18 +64,79 @@ class TokenizationService:
         """Normalize a value for consistent matching."""
         return value.strip().upper()
 
+    # Prefix lengths: MERCHANT_ = 9, ACCOUNT_ = 8, PERSON_ = 7
+    _PREFIX_LENGTHS = {
+        TokenType.merchant: 10,   # substr is 1-indexed: "MERCHANT_" is 9 chars, so number starts at 10
+        TokenType.account: 9,     # "ACCOUNT_" is 8 chars, number starts at 9
+        TokenType.person: 8,      # "PERSON_" is 7 chars, number starts at 8
+    }
+
     def _get_next_token_number(self, token_type: TokenType) -> int:
-        """Get the next available token number for a type."""
-        count = self.db.query(TokenMap).filter(
-            TokenMap.token_type == token_type
-        ).count()
-        return count + 1
+        """
+        Get the next available token number for a type.
+        Uses max() for atomicity instead of count() to avoid race conditions.
+        """
+        substr_start = self._PREFIX_LENGTHS.get(token_type, 10)
+        max_num = (
+            self.db.query(func.max(func.cast(func.substr(TokenMap.token, substr_start), Integer)))
+            .filter(TokenMap.token_type == token_type)
+            .scalar()
+        )
+
+        return (max_num or 0) + 1
+
+    def _create_token_with_retry(
+        self,
+        token_type: TokenType,
+        original_value: str,
+        normalized: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Create a token with retry logic to handle race conditions.
+        If a duplicate token is created, we retry with a new number.
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            token_num = self._get_next_token_number(token_type)
+
+            if token_type == TokenType.merchant:
+                token = f"MERCHANT_{token_num:04d}"
+            elif token_type == TokenType.account:
+                token = f"ACCOUNT_{token_num:03d}"
+            else:
+                token = f"PERSON_{token_num:03d}"
+
+            token_map = TokenMap(
+                token_type=token_type,
+                original_value=original_value,
+                normalized_value=normalized,
+                token=token,
+                metadata_=metadata,
+            )
+            self.db.add(token_map)
+
+            try:
+                self.db.commit()
+                return token
+            except IntegrityError:
+                self.db.rollback()
+                logger.warning(
+                    f"Token collision on {token}, retrying (attempt {attempt + 1})"
+                )
+                continue
+
+        raise RuntimeError(
+            f"Failed to create unique token after {max_retries} attempts"
+        )
 
     def tokenize_merchant(
         self,
         merchant: str,
         category: Optional[str] = None,
-        subcategory: Optional[str] = None
+        subcategory: Optional[str] = None,
     ) -> str:
         """
         Tokenize a merchant name.
@@ -83,24 +146,22 @@ class TokenizationService:
         normalized = self._normalize(merchant)
         cache_key = (TokenType.merchant, normalized)
 
-        # Check cache first
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        # Check database
-        existing = self.db.query(TokenMap).filter(
-            TokenMap.token_type == TokenType.merchant,
-            TokenMap.normalized_value == normalized
-        ).first()
+        existing = (
+            self.db.query(TokenMap)
+            .filter(
+                TokenMap.token_type == TokenType.merchant,
+                TokenMap.normalized_value == normalized,
+            )
+            .first()
+        )
 
         if existing:
             self._cache[cache_key] = existing.token
             self._reverse_cache[existing.token] = existing.original_value
             return existing.token
-
-        # Create new token
-        token_num = self._get_next_token_number(TokenType.merchant)
-        token = f"MERCHANT_{token_num:04d}"
 
         metadata = {}
         if category:
@@ -108,15 +169,9 @@ class TokenizationService:
         if subcategory:
             metadata["subcategory"] = subcategory
 
-        token_map = TokenMap(
-            token_type=TokenType.merchant,
-            original_value=merchant,
-            normalized_value=normalized,
-            token=token,
-            metadata_=metadata if metadata else None
+        token = self._create_token_with_retry(
+            TokenType.merchant, merchant, normalized, metadata if metadata else None
         )
-        self.db.add(token_map)
-        self.db.commit()
 
         self._cache[cache_key] = token
         self._reverse_cache[token] = merchant
@@ -124,9 +179,7 @@ class TokenizationService:
         return token
 
     def tokenize_account(
-        self,
-        account_name: str,
-        account_type: Optional[str] = None
+        self, account_name: str, account_type: Optional[str] = None
     ) -> str:
         """Tokenize an account identifier."""
         normalized = self._normalize(account_name)
@@ -135,30 +188,25 @@ class TokenizationService:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        existing = self.db.query(TokenMap).filter(
-            TokenMap.token_type == TokenType.account,
-            TokenMap.normalized_value == normalized
-        ).first()
+        existing = (
+            self.db.query(TokenMap)
+            .filter(
+                TokenMap.token_type == TokenType.account,
+                TokenMap.normalized_value == normalized,
+            )
+            .first()
+        )
 
         if existing:
             self._cache[cache_key] = existing.token
             self._reverse_cache[existing.token] = existing.original_value
             return existing.token
 
-        token_num = self._get_next_token_number(TokenType.account)
-        token = f"ACCOUNT_{token_num:03d}"
-
         metadata = {"account_type": account_type} if account_type else None
 
-        token_map = TokenMap(
-            token_type=TokenType.account,
-            original_value=account_name,
-            normalized_value=normalized,
-            token=token,
-            metadata_=metadata
+        token = self._create_token_with_retry(
+            TokenType.account, account_name, normalized, metadata
         )
-        self.db.add(token_map)
-        self.db.commit()
 
         self._cache[cache_key] = token
         self._reverse_cache[token] = account_name
@@ -178,12 +226,8 @@ class TokenizationService:
             if match:
                 person_name = match.group(1).strip()
                 person_token = self._tokenize_person(person_name)
-                # Replace the person name portion
                 result = re.sub(
-                    pattern,
-                    f"{service} {person_token}",
-                    result,
-                    flags=re.IGNORECASE
+                    pattern, f"{service} {person_token}", result, flags=re.IGNORECASE
                 )
 
         return result
@@ -196,28 +240,23 @@ class TokenizationService:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        existing = self.db.query(TokenMap).filter(
-            TokenMap.token_type == TokenType.person,
-            TokenMap.normalized_value == normalized
-        ).first()
+        existing = (
+            self.db.query(TokenMap)
+            .filter(
+                TokenMap.token_type == TokenType.person,
+                TokenMap.normalized_value == normalized,
+            )
+            .first()
+        )
 
         if existing:
             self._cache[cache_key] = existing.token
             self._reverse_cache[existing.token] = existing.original_value
             return existing.token
 
-        token_num = self._get_next_token_number(TokenType.person)
-        token = f"PERSON_{token_num:03d}"
-
-        token_map = TokenMap(
-            token_type=TokenType.person,
-            original_value=person_name,
-            normalized_value=normalized,
-            token=token,
-            metadata_=None
+        token = self._create_token_with_retry(
+            TokenType.person, person_name, normalized, None
         )
-        self.db.add(token_map)
-        self.db.commit()
 
         self._cache[cache_key] = token
         self._reverse_cache[token] = person_name
@@ -242,8 +281,7 @@ class TokenizationService:
         """
         result = text
 
-        # Find all tokens in the text
-        token_pattern = r'(MERCHANT_\d{4}|ACCOUNT_\d{3}|PERSON_\d{3})'
+        token_pattern = r"(MERCHANT_\d{4}|ACCOUNT_\d{3}|PERSON_\d{3})"
 
         for match in re.finditer(token_pattern, text):
             token = match.group(1)
@@ -253,9 +291,7 @@ class TokenizationService:
         return result
 
     def tokenize_transaction_for_ai(
-        self,
-        transaction: Dict[str, Any],
-        include_category: bool = True
+        self, transaction: Dict[str, Any], include_category: bool = True
     ) -> Dict[str, Any]:
         """
         Tokenize a transaction dict for sending to AI.
@@ -265,7 +301,6 @@ class TokenizationService:
         """
         result = dict(transaction)
 
-        # Tokenize merchant
         if "merchant" in result or "clean_merchant" in result:
             merchant = result.get("clean_merchant") or result.get("merchant", "")
             category = result.get("category_name") if include_category else None
@@ -276,27 +311,26 @@ class TokenizationService:
             else:
                 result["merchant"] = token
 
-            # Remove raw fields
             result.pop("clean_merchant", None)
             result.pop("raw_description", None)
 
-        # Tokenize description if present
         if "description" in result:
             result["description"] = self.tokenize_description(result["description"])
 
-        # Shift date
         if "date" in result:
             if isinstance(result["date"], str):
                 from datetime import datetime
+
                 d = datetime.fromisoformat(result["date"]).date()
             else:
                 d = result["date"]
             result["date"] = self.shift_date(d).isoformat()
 
-        # Tokenize account if present
         if "account_name" in result:
             account_type = result.get("account_type")
-            result["account"] = self.tokenize_account(result["account_name"], account_type)
+            result["account"] = self.tokenize_account(
+                result["account_name"], account_type
+            )
             result.pop("account_name", None)
             result.pop("account_type", None)
 
@@ -313,11 +347,14 @@ class TokenizationService:
             normalized = self._normalize(merchant)
             cache_key = (TokenType.merchant, normalized)
             if cache_key not in self._cache:
-                # Double-check database
-                existing = self.db.query(TokenMap).filter(
-                    TokenMap.token_type == TokenType.merchant,
-                    TokenMap.normalized_value == normalized
-                ).first()
+                existing = (
+                    self.db.query(TokenMap)
+                    .filter(
+                        TokenMap.token_type == TokenType.merchant,
+                        TokenMap.normalized_value == normalized,
+                    )
+                    .first()
+                )
                 if not existing:
                     unknown.append(merchant)
 
@@ -327,12 +364,13 @@ class TokenizationService:
         """Get counts of each token type."""
         stats = {}
         for token_type in TokenType:
-            count = self.db.query(TokenMap).filter(
-                TokenMap.token_type == token_type
-            ).count()
+            count = (
+                self.db.query(TokenMap)
+                .filter(TokenMap.token_type == token_type)
+                .count()
+            )
             stats[token_type.value] = count
 
-        # Add date shift info
         shift = self.db.query(DateShift).first()
         stats["date_shift_days"] = shift.shift_days if shift else 0
 

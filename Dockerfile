@@ -5,25 +5,28 @@ FROM python:3.11-slim as api
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN groupadd -r spendah && useradd -r -g spendah spendah
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy backend requirements and install dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend application code
 COPY backend/ .
 
-# Create data directory
-RUN mkdir -p /app/data/imports/inbox /app/data/imports/processed /app/data/imports/failed
+RUN mkdir -p /app/data/imports/inbox /app/data/imports/processed /app/data/imports/failed \
+    && chown -R spendah:spendah /app
 
-# Expose port
+USER spendah
+
 EXPOSE 8000
 
-# Run the application
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 
@@ -32,20 +35,15 @@ FROM node:20-alpine as frontend-build
 
 WORKDIR /app
 
-# Accept build args for Vite environment variables
 ARG VITE_API_PORT=8000
 ENV VITE_API_PORT=$VITE_API_PORT
 
-# Copy package files
 COPY frontend/package*.json ./
 
-# Install dependencies
 RUN npm install
 
-# Copy frontend source
 COPY frontend/ .
 
-# Build the frontend (Vite reads VITE_* env vars at build time)
 RUN npm run build
 
 
@@ -54,14 +52,17 @@ FROM node:20-alpine as frontend
 
 WORKDIR /app
 
-# Install serve to serve the static files
+RUN addgroup -S spendah && adduser -S spendah -G spendah
+
 RUN npm install -g serve
 
-# Copy built files from build stage
-COPY --from=frontend-build /app/dist ./dist
+COPY --from=frontend-build --chown=spendah:spendah /app/dist ./dist
 
-# Expose port
+USER spendah
+
 EXPOSE 5173
 
-# Serve the static files
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:5173/ || exit 1
+
 CMD ["serve", "-s", "dist", "-l", "5173"]

@@ -9,11 +9,13 @@ export default function Import() {
   const [uploadResponse, setUploadResponse] = useState<any>(null)
   const [selectedAccount, setSelectedAccount] = useState<string>('')
   const [dateFormat, setDateFormat] = useState('%Y-%m-%d')
-  const [columnMapping, setColumnMapping] = useState({
+  const [columnMapping, setColumnMapping] = useState<any>({
     date_col: 0,
     amount_col: 1,
     description_col: 2,
   })
+  const [autoCreateAccounts, setAutoCreateAccounts] = useState(false)
+  const [defaultAccountType, setDefaultAccountType] = useState('checking')
 
   const { data: accounts } = useQuery({
     queryKey: ['accounts'],
@@ -32,11 +34,28 @@ export default function Import() {
 
       if (data.detected_format && data.detected_format.confidence > 0.5) {
         const detected = data.detected_format
-        setColumnMapping({
+        const newMapping: any = {
           date_col: detected.columns.date ?? 0,
           amount_col: detected.columns.amount ?? 1,
           description_col: detected.columns.description ?? 2,
-        })
+        }
+        
+        if (detected.columns.debit !== null && detected.columns.debit !== undefined) {
+          newMapping.debit_col = detected.columns.debit
+        }
+        if (detected.columns.credit !== null && detected.columns.credit !== undefined) {
+          newMapping.credit_col = detected.columns.credit
+        }
+        if (detected.columns.balance !== null && detected.columns.balance !== undefined) {
+          newMapping.balance_col = detected.columns.balance
+        }
+        if (detected.columns.account !== null && detected.columns.account !== undefined) {
+          newMapping.account_col = detected.columns.account
+          setAutoCreateAccounts(true)
+        }
+        
+        setColumnMapping(newMapping)
+        
         if (detected.date_format) {
           const formatMap: Record<string, string> = {
             '%Y-%m-%d': '%Y-%m-%d',
@@ -57,6 +76,7 @@ export default function Import() {
       setUploadResponse(null)
       queryClient.invalidateQueries({ queryKey: ['importHistory'] })
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
     },
   })
 
@@ -65,17 +85,29 @@ export default function Import() {
   }
 
   const handleConfirm = () => {
-    if (!uploadResponse || !selectedAccount) return
+    if (!uploadResponse) return
+    if (!autoCreateAccounts && !selectedAccount) return
+
+    const data: any = {
+      column_mapping: columnMapping,
+      date_format: dateFormat,
+    }
+
+    if (autoCreateAccounts && columnMapping.account_col !== undefined) {
+      data.auto_create_accounts = true
+      data.default_account_type = defaultAccountType
+    } else {
+      data.account_id = selectedAccount
+    }
 
     confirmMutation.mutate({
       importId: uploadResponse.import_id,
-      data: {
-        account_id: selectedAccount,
-        column_mapping: columnMapping,
-        date_format: dateFormat,
-      },
+      data,
     })
   }
+
+  const hasAccountColumn = columnMapping.account_col !== undefined && columnMapping.account_col !== null
+  const canImport = autoCreateAccounts && hasAccountColumn ? true : !!selectedAccount
 
   return (
     <div className="space-y-6">
@@ -95,26 +127,61 @@ export default function Import() {
 
           {uploadResponse.detected_format && uploadResponse.detected_format.confidence > 0.5 && (
             <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800 mb-4">
-              ✨ AI detected format: {uploadResponse.detected_format.source_guess || 'Unknown source'}
+              AI detected format: {uploadResponse.detected_format.source_guess || 'Unknown source'}
               {' '}({Math.round(uploadResponse.detected_format.confidence * 100)}% confidence)
+              {hasAccountColumn && (
+                <span className="block mt-1">
+                  Multiple accounts detected - will auto-create accounts from CSV
+                </span>
+              )}
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Account</label>
-            <select
-              className="w-full border rounded p-2"
-              value={selectedAccount}
-              onChange={(e) => setSelectedAccount(e.target.value)}
-            >
-              <option value="">Select account...</option>
-              {accounts?.items?.map((acc: any) => (
-                <option key={acc.id} value={acc.id}>
-                  {acc.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {hasAccountColumn && (
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoCreateAccounts}
+                  onChange={(e) => setAutoCreateAccounts(e.target.checked)}
+                  className="rounded"
+                />
+                <span>Auto-create accounts from CSV (Account column detected)</span>
+              </label>
+              {autoCreateAccounts && (
+                <div className="mt-2">
+                  <label className="block text-sm font-medium mb-1">Default Account Type</label>
+                  <select
+                    className="border rounded p-1 text-sm"
+                    value={defaultAccountType}
+                    onChange={(e) => setDefaultAccountType(e.target.value)}
+                  >
+                    <option value="checking">Checking</option>
+                    <option value="savings">Savings</option>
+                    <option value="credit_card">Credit Card</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(!hasAccountColumn || !autoCreateAccounts) && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Account</label>
+              <select
+                className="w-full border rounded p-2"
+                value={selectedAccount}
+                onChange={(e) => setSelectedAccount(e.target.value)}
+              >
+                <option value="">Select account...</option>
+                {accounts?.items?.map((acc: any) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-4">
             <div>
@@ -167,6 +234,29 @@ export default function Import() {
             </div>
           </div>
 
+          {hasAccountColumn && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Account Column</label>
+              <select
+                className="w-full border rounded p-2"
+                value={columnMapping.account_col ?? ''}
+                onChange={(e) =>
+                  setColumnMapping({ 
+                    ...columnMapping, 
+                    account_col: e.target.value ? parseInt(e.target.value) : undefined 
+                  })
+                }
+              >
+                <option value="">None</option>
+                {uploadResponse.headers.map((h: string, i: number) => (
+                  <option key={i} value={i}>
+                    {h}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium mb-1">Date Format</label>
             <select
@@ -218,7 +308,7 @@ export default function Import() {
             </Button>
             <Button
               onClick={handleConfirm}
-              disabled={!selectedAccount || confirmMutation.isPending}
+              disabled={!canImport || confirmMutation.isPending}
             >
               {confirmMutation.isPending
                 ? 'Importing...'

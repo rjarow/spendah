@@ -7,7 +7,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.dependencies import get_db
 from app.models.account import Account
 from app.schemas.account import AccountResponse
 from app.services.networth_service import (

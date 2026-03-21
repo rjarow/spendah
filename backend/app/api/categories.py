@@ -1,5 +1,5 @@
 """
-Category API endpoints.
+Category API endpoints - refactored to use service layer.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,74 +14,44 @@ from app.schemas.category import (
     CategoryResponse,
     CategoryList,
 )
+from app.services.category_service import CategoryService
 
 router = APIRouter()
 
 
-def build_category_tree(categories: List[Category]) -> List[CategoryResponse]:
-    """Build a hierarchical tree structure from flat category list."""
-    # Create a mapping of category IDs to category objects
-    category_map = {cat.id: CategoryResponse.model_validate(cat) for cat in categories}
-
-    # Build the tree
-    root_categories = []
-    for cat in category_map.values():
-        if cat.parent_id is None:
-            root_categories.append(cat)
-        else:
-            parent = category_map.get(cat.parent_id)
-            if parent:
-                parent.children.append(cat)
-
-    return root_categories
-
-
 @router.get("", response_model=CategoryList)
-def list_categories(
-    db: Session = Depends(get_db)
-):
+def list_categories(db: Session = Depends(get_db)):
     """List all categories with tree structure."""
-    categories = db.query(Category).all()
-    tree = build_category_tree(categories)
+    service = CategoryService(db)
+    categories = service.list_categories()
+    tree = service.build_category_tree(categories)
 
     return CategoryList(
-        items=tree,
-        total=len(categories)
+        items=[CategoryResponse(**cat) for cat in tree], total=len(categories)
     )
 
 
 @router.post("", response_model=CategoryResponse, status_code=201)
-def create_category(
-    category: CategoryCreate,
-    db: Session = Depends(get_db)
-):
+def create_category(category: CategoryCreate, db: Session = Depends(get_db)):
     """Create a new category."""
-    # Validate parent exists if parent_id is provided
-    if category.parent_id:
-        parent = db.query(Category).filter(Category.id == category.parent_id).first()
-        if not parent:
-            raise HTTPException(status_code=404, detail="Parent category not found")
-
-    db_category = Category(
-        name=category.name,
-        parent_id=category.parent_id,
-        color=category.color,
-        icon=category.icon,
-        is_system=False  # User-created categories are not system categories
-    )
-    db.add(db_category)
-    db.commit()
-    db.refresh(db_category)
+    service = CategoryService(db)
+    try:
+        db_category = service.create_category(
+            name=category.name,
+            parent_id=category.parent_id,
+            color=category.color,
+            icon=category.icon,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return db_category
 
 
 @router.get("/{category_id}", response_model=CategoryResponse)
-def get_category(
-    category_id: str,
-    db: Session = Depends(get_db)
-):
+def get_category(category_id: str, db: Session = Depends(get_db)):
     """Get a specific category."""
-    category = db.query(Category).filter(Category.id == category_id).first()
+    service = CategoryService(db)
+    category = service.get_category(category_id)
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     return category
@@ -89,66 +59,35 @@ def get_category(
 
 @router.patch("/{category_id}", response_model=CategoryResponse)
 def update_category(
-    category_id: str,
-    category_update: CategoryUpdate,
-    db: Session = Depends(get_db)
+    category_id: str, category_update: CategoryUpdate, db: Session = Depends(get_db)
 ):
     """Update a category."""
-    category = db.query(Category).filter(Category.id == category_id).first()
+    service = CategoryService(db)
+    try:
+        category = service.update_category(
+            category_id=category_id,
+            name=category_update.name,
+            parent_id=category_update.parent_id,
+            color=category_update.color,
+            icon=category_update.icon,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
-
-    # Validate parent exists if parent_id is being updated
-    if category_update.parent_id is not None:
-        parent = db.query(Category).filter(Category.id == category_update.parent_id).first()
-        if not parent:
-            raise HTTPException(status_code=404, detail="Parent category not found")
-
-    # Update fields if provided
-    if category_update.name is not None:
-        category.name = category_update.name
-    if category_update.parent_id is not None:
-        category.parent_id = category_update.parent_id
-    if category_update.color is not None:
-        category.color = category_update.color
-    if category_update.icon is not None:
-        category.icon = category_update.icon
-
-    db.commit()
-    db.refresh(category)
     return category
 
 
 @router.delete("/{category_id}", status_code=204)
-def delete_category(
-    category_id: str,
-    db: Session = Depends(get_db)
-):
+def delete_category(category_id: str, db: Session = Depends(get_db)):
     """Delete a category (reassigns transactions to 'Other' first)."""
-    from app.models import Transaction
+    service = CategoryService(db)
+    try:
+        deleted = service.delete_category(category_id)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    category = db.query(Category).filter(Category.id == category_id).first()
-    if not category:
+    if not deleted:
         raise HTTPException(status_code=404, detail="Category not found")
-
-    # Find the "Other" category
-    other_category = db.query(Category).filter(
-        Category.name == "Other",
-        Category.is_system == True
-    ).first()
-
-    if not other_category:
-        raise HTTPException(
-            status_code=500,
-            detail="'Other' category not found. Cannot delete category."
-        )
-
-    # Reassign all transactions to "Other"
-    db.query(Transaction).filter(
-        Transaction.category_id == category_id
-    ).update({"category_id": other_category.id})
-
-    # Delete the category
-    db.delete(category)
-    db.commit()
     return None

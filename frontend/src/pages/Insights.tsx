@@ -44,7 +44,7 @@ export default function Insights() {
   })
 
   const dismissMutation = useMutation({
-    mutationFn: updateAlert,
+    mutationFn: (data: { id: string; is_read: boolean }) => updateAlert(data.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] })
     },

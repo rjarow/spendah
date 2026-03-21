@@ -8,19 +8,31 @@ export function PrivacySettingsPanel() {
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    
+    const loadSettings = async () => {
+      try {
+        const data = await privacyApi.getSettings();
+        if (!cancelled) {
+          setSettings(data);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load privacy settings:', error);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    
     loadSettings();
+    
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  const loadSettings = async () => {
-    try {
-      const data = await privacyApi.getSettings();
-      setSettings(data);
-    } catch (error) {
-      console.error('Failed to load privacy settings:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const updateMasterToggle = async (enabled: boolean) => {
     if (!settings) return;

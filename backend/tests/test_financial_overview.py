@@ -304,8 +304,8 @@ def test_budget_progress_with_transactions(db_session: Session):
     db_session.add(rent_budget)
     db_session.commit()
 
-    # Get budget status
-    budget_status = get_all_budgets_progress(db_session)
+    # Get budget status (use as_of_date matching the test transactions)
+    budget_status = get_all_budgets_progress(db_session, as_of_date=datetime(2024, 1, 15))
 
     # Verify Food budget has correct progress
     food_budget = next((b for b in budget_status if b['category_id'] == category1.id), None)
@@ -429,8 +429,8 @@ def test_financial_overview_integration_multiple_categories(db_session: Session)
     expected_net_worth = Decimal("1000.00") + Decimal("5000.00")  # Just the two account balances
     assert breakdown['net_worth'] == expected_net_worth
 
-    # Verify budget progress
-    budget_status = get_all_budgets_progress(db_session)
+    # Verify budget progress (use as_of_date matching the test transactions)
+    budget_status = get_all_budgets_progress(db_session, as_of_date=datetime(2024, 1, 15))
 
     # Food budget
     food = next((b for b in budget_status if b['category_id'] == categories[0].id), None)

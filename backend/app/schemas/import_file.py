@@ -19,9 +19,18 @@ class ColumnMapping(BaseModel):
     date_col: int = Field(..., description="Column index for date")
     amount_col: int = Field(..., description="Column index for amount")
     description_col: int = Field(..., description="Column index for description")
-    debit_col: Optional[int] = Field(None, description="Column index for debit (if separate)")
-    credit_col: Optional[int] = Field(None, description="Column index for credit (if separate)")
-    balance_col: Optional[int] = Field(None, description="Column index for balance (if present)")
+    debit_col: Optional[int] = Field(
+        None, description="Column index for debit (if separate)"
+    )
+    credit_col: Optional[int] = Field(
+        None, description="Column index for credit (if separate)"
+    )
+    balance_col: Optional[int] = Field(
+        None, description="Column index for balance (if present)"
+    )
+    account_col: Optional[int] = Field(
+        None, description="Column index for account name (if present)"
+    )
 
 
 class ImportUploadResponse(BaseModel):
@@ -38,13 +47,21 @@ class ImportUploadResponse(BaseModel):
 
 
 class ImportConfirmRequest(BaseModel):
-    account_id: str
+    account_id: Optional[str] = Field(
+        None, description="Account ID (required if account_col not set)"
+    )
     column_mapping: ColumnMapping
     date_format: str = "%d/%m/%Y"
     save_format: bool = False
     format_name: Optional[str] = None
     update_balance: bool = False
     new_balance: Optional[float] = None
+    auto_create_accounts: bool = Field(
+        False, description="Auto-create accounts from account_col"
+    )
+    default_account_type: str = Field(
+        "checking", description="Account type for auto-created accounts"
+    )
 
 
 class ImportStatusResponse(BaseModel):

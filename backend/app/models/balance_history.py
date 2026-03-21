@@ -5,7 +5,7 @@ BalanceHistory database model.
 import uuid
 from datetime import datetime, date
 from decimal import Decimal
-from sqlalchemy import Column, String, Date, DateTime, Numeric, ForeignKey
+from sqlalchemy import Column, String, Date, DateTime, Numeric, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -16,12 +16,20 @@ class BalanceHistory(Base):
     __tablename__ = "balance_history"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False)
+    account_id = Column(
+        String(36),
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     balance = Column(Numeric(12, 2), nullable=False)
-    recorded_at = Column(Date, nullable=False)
+    recorded_at = Column(Date, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # Relationships
+    __table_args__ = (
+        Index("ix_balance_history_account_date", "account_id", "recorded_at"),
+    )
+
     account = relationship("Account", back_populates="balance_history")
 
     def __repr__(self):

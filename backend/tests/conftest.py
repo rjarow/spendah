@@ -9,8 +9,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 import uuid
 
-from app.database import Base, get_db as database_get_db
-from app.dependencies import get_db as dependencies_get_db
+from app.database import Base
+from app.dependencies import get_db
 from app.main import app
 from app.models.account import Account, AccountType
 from app.models.category import Category
@@ -54,9 +54,7 @@ def client(db_session):
         finally:
             pass
 
-    # Override both get_db functions (some routes use app.database, others use app.dependencies)
-    app.dependency_overrides[database_get_db] = override_get_db
-    app.dependency_overrides[dependencies_get_db] = override_get_db
+    app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

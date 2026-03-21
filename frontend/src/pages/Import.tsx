@@ -3,6 +3,7 @@ import { FileDropZone } from '@/components/imports/FileDropZone'
 import { uploadFile, confirmImport, getImportHistory, getAccounts } from '@/lib/api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
+import { CheckCircle, FileText } from 'lucide-react'
 
 export default function Import() {
   const queryClient = useQueryClient()
@@ -16,6 +17,8 @@ export default function Import() {
   })
   const [autoCreateAccounts, setAutoCreateAccounts] = useState(false)
   const [defaultAccountType, setDefaultAccountType] = useState('checking')
+  const [saveFormat, setSaveFormat] = useState(true)
+  const [formatApplied, setFormatApplied] = useState(false)
 
   const { data: accounts } = useQuery({
     queryKey: ['accounts'],
@@ -31,8 +34,17 @@ export default function Import() {
     mutationFn: uploadFile,
     onSuccess: (data) => {
       setUploadResponse(data)
+      setFormatApplied(false)
 
-      if (data.detected_format && data.detected_format.confidence > 0.5) {
+      if (data.saved_format) {
+        const sf = data.saved_format
+        setColumnMapping(sf.column_mapping)
+        setDateFormat(sf.date_format)
+        setFormatApplied(true)
+        if (sf.column_mapping.account_col !== undefined) {
+          setAutoCreateAccounts(true)
+        }
+      } else if (data.detected_format && data.detected_format.confidence > 0.5) {
         const detected = data.detected_format
         const newMapping: any = {
           date_col: detected.columns.date ?? 0,
@@ -74,6 +86,7 @@ export default function Import() {
       confirmImport(importId, data),
     onSuccess: () => {
       setUploadResponse(null)
+      setFormatApplied(false)
       queryClient.invalidateQueries({ queryKey: ['importHistory'] })
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
@@ -91,6 +104,7 @@ export default function Import() {
     const data: any = {
       column_mapping: columnMapping,
       date_format: dateFormat,
+      save_format: saveFormat,
     }
 
     if (autoCreateAccounts && columnMapping.account_col !== undefined) {
@@ -120,13 +134,33 @@ export default function Import() {
         />
       ) : (
         <div className="space-y-4 p-4 border rounded-lg">
-          <h2 className="text-lg font-semibold">Confirm Import</h2>
-          <p className="text-sm text-gray-600">
-            File: {uploadResponse.filename} ({uploadResponse.row_count} rows)
-          </p>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Confirm Import</h2>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <FileText className="w-4 h-4" />
+              {uploadResponse.filename} ({uploadResponse.row_count} rows)
+            </div>
+          </div>
 
-          {uploadResponse.detected_format && uploadResponse.detected_format.confidence > 0.5 && (
-            <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800 mb-4">
+          {uploadResponse.saved_format && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-medium text-green-800">
+                    Matched saved format: {uploadResponse.saved_format.name}
+                  </div>
+                  <div className="text-sm text-green-700 mt-1">
+                    Column mapping auto-applied from previous import
+                    {uploadResponse.saved_format.account_name && ` for ${uploadResponse.saved_format.account_name}`}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!uploadResponse.saved_format && uploadResponse.detected_format && uploadResponse.detected_format.confidence > 0.5 && (
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
               AI detected format: {uploadResponse.detected_format.source_guess || 'Unknown source'}
               {' '}({Math.round(uploadResponse.detected_format.confidence * 100)}% confidence)
               {hasAccountColumn && (
@@ -138,7 +172,7 @@ export default function Import() {
           )}
 
           {hasAccountColumn && (
-            <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mb-4">
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -299,10 +333,32 @@ export default function Import() {
             </div>
           </div>
 
+          <div className="bg-gray-50 border rounded p-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={saveFormat}
+                onChange={(e) => setSaveFormat(e.target.checked)}
+                className="rounded"
+              />
+              <span className="text-sm">
+                Remember this format for future imports
+                {!uploadResponse.saved_format && selectedAccount && accounts?.items && (
+                  <span className="text-gray-500">
+                    {' '}(for {accounts.items.find((a: any) => a.id === selectedAccount)?.name || 'this account'})
+                  </span>
+                )}
+              </span>
+            </label>
+          </div>
+
           <div className="flex gap-2">
             <Button
               variant="outline"
-              onClick={() => setUploadResponse(null)}
+              onClick={() => {
+                setUploadResponse(null)
+                setFormatApplied(false)
+              }}
             >
               Cancel
             </Button>
@@ -317,10 +373,14 @@ export default function Import() {
           </div>
 
           {confirmMutation.isSuccess && (
-            <p className="text-green-600">Import successful!</p>
+            <div className="bg-green-50 border border-green-200 rounded p-3 text-green-800">
+              Import successful! Your transactions have been imported.
+            </div>
           )}
           {confirmMutation.isError && (
-            <p className="text-red-600">Import failed. Please try again.</p>
+            <div className="bg-red-50 border border-red-200 rounded p-3 text-red-800">
+              Import failed. Please try again.
+            </div>
           )}
         </div>
       )}

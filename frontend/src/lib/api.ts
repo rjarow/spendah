@@ -50,6 +50,14 @@ import type {
   RuleTestResponse,
   RuleSuggestion,
   RuleSuggestionsResponse,
+  AccountBalancesResponse,
+  CategoryTrendsResponse,
+  SpendingByCategoryResponse,
+  MerchantRankingResponse,
+  MonthlySummaryResponse,
+  AnomalyResponse,
+  LearnedFormat,
+  AIUsageResponse,
 } from '@/types'
 
 const API_PORT = import.meta.env.VITE_API_PORT || '8000'
@@ -212,6 +220,16 @@ export const getDashboardTrends = async (months: number = 6) => {
 
 export const getRecentTransactions = async (limit: number = 10) => {
   const response = await api.get<RecentTransaction[]>('/dashboard/recent-transactions', { params: { limit } })
+  return response.data
+}
+
+export const getAccountBalances = async () => {
+  const response = await api.get<AccountBalancesResponse>('/dashboard/account-balances')
+  return response.data
+}
+
+export const getCategoryTrends = async (months: number = 3) => {
+  const response = await api.get<CategoryTrendsResponse>('/dashboard/category-trends', { params: { months } })
   return response.data
 }
 
@@ -528,6 +546,14 @@ export type {
   RuleTestResponse,
   RuleSuggestion,
   RuleSuggestionsResponse,
+  AccountBalancesResponse,
+  CategoryTrendsResponse,
+  SpendingByCategoryResponse,
+  MerchantRankingResponse,
+  MonthlySummaryResponse,
+  AnomalyResponse,
+  LearnedFormat,
+  AIUsageResponse,
 }
 
 // Rules API
@@ -572,6 +598,41 @@ export const createRuleFromSuggestion = async (suggestionIndex: number) => {
   const response = await api.post<CategorizationRule>('/rules/create-from-suggestion', null, {
     params: { suggestion_index: suggestionIndex }
   })
+  return response.data
+}
+
+export const getSpendingByCategory = async (months: number = 6) => {
+  const response = await api.get<SpendingByCategoryResponse>('/insights/spending-by-category', { params: { months } })
+  return response.data
+}
+
+export const getMerchantRanking = async (months: number = 3, limit: number = 20) => {
+  const response = await api.get<MerchantRankingResponse>('/insights/merchant-ranking', { params: { months, limit } })
+  return response.data
+}
+
+export const getMonthlySummary = async (months: number = 12) => {
+  const response = await api.get<MonthlySummaryResponse>('/insights/monthly-summary', { params: { months } })
+  return response.data
+}
+
+export const getAnomalies = async (months: number = 3) => {
+  const response = await api.get<AnomalyResponse>('/insights/anomalies', { params: { months } })
+  return response.data
+}
+
+export const getFormats = async () => {
+  const response = await api.get<{ items: LearnedFormat[] }>('/imports/formats')
+  return response.data
+}
+
+export const getFormatMatch = async (fingerprint: string) => {
+  const response = await api.get<LearnedFormat | null>('/imports/formats/match', { params: { fingerprint } })
+  return response.data
+}
+
+export const getAIUsage = async (days: number = 30) => {
+  const response = await api.get<AIUsageResponse>('/settings/ai/usage', { params: { days } })
   return response.data
 }
 

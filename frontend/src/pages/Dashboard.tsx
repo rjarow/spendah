@@ -1,12 +1,10 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getDashboardSummary, getDashboardTrends, getRecentTransactions, getUpcomingRenewals, getBudgets, getNetWorth } from '@/lib/api'
+import { getDashboardSummary, getDashboardTrends, getRecentTransactions, getUpcomingRenewals, getBudgets, getNetWorth, getAccountBalances, getCategoryTrends } from '@/lib/api'
 import { formatCurrency, formatMonth, formatPercent } from '@/lib/formatters'
 import { Link } from 'react-router-dom'
 import BudgetSummaryWidget from '@/components/BudgetSummaryWidget'
-import NetWorthWidget from '@/components/NetWorthWidget'
-import FinancialHealthScore from '@/components/FinancialHealthScore'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Wallet, PiggyBank, CreditCard } from 'lucide-react'
 
 export default function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -19,9 +17,14 @@ export default function Dashboard() {
     queryFn: () => getDashboardSummary(selectedMonth),
   })
 
-  const { data: trends } = useQuery({
-    queryKey: ['dashboard-trends'],
-    queryFn: () => getDashboardTrends(6),
+  const { data: accountBalances } = useQuery({
+    queryKey: ['account-balances'],
+    queryFn: () => getAccountBalances(),
+  })
+
+  const { data: categoryTrends } = useQuery({
+    queryKey: ['category-trends'],
+    queryFn: () => getCategoryTrends(3),
   })
 
   const { data: recentTransactions } = useQuery({
@@ -38,27 +41,6 @@ export default function Dashboard() {
     queryKey: ['budgets', selectedMonth],
     queryFn: () => getBudgets(true),
   })
-
-  const { data: netWorth } = useQuery({
-    queryKey: ['net-worth'],
-    queryFn: () => getNetWorth(),
-  })
-
-  const chartData = trends?.map(t => ({
-    date: new Date(t.month + '-01').toLocaleDateString('en-US', { month: 'short' }),
-    netWorth: t.net,
-    income: t.income,
-    expenses: t.expenses,
-  })) || Array.from({ length: 6 }, (_, i) => {
-    const date = new Date()
-    date.setMonth(date.getMonth() - i)
-    return {
-      date: date.toLocaleDateString('en-US', { month: 'short' }),
-      netWorth: 0,
-      income: 0,
-      expenses: 0,
-    }
-  }).reverse()
 
   const navigateMonth = (direction: number) => {
     const [year, month] = selectedMonth.split('-').map(Number)
@@ -79,6 +61,10 @@ export default function Dashboard() {
   if (summaryLoading) {
     return <div className="p-4">Loading...</div>
   }
+
+  const spendingSpikes = categoryTrends?.categories.filter(c => c.is_spike) || []
+  const savingsRate = summary?.savings_rate
+  const savingsRateColor = savingsRate === null ? 'text-gray-500' : savingsRate >= 20 ? 'text-green-600' : savingsRate >= 10 ? 'text-yellow-600' : 'text-red-600'
 
   return (
     <div className="space-y-6">
@@ -101,99 +87,75 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white border rounded-lg p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Net Worth</h2>
-            <Link to="/net-worth" className="text-sm text-blue-600 hover:underline">
-              View Details →
-            </Link>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <div className="text-sm text-gray-500">Net Worth</div>
-              <div className={`text-2xl font-bold ${netWorth?.net_worth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(netWorth?.net_worth || 0)}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-500">Assets</div>
-              <div className="text-lg font-bold text-green-600">{formatCurrency(netWorth?.total_assets || 0)}</div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-500">Liabilities</div>
-              <div className="text-lg font-bold text-red-600">{formatCurrency(netWorth?.total_liabilities || 0)}</div>
-            </div>
-          </div>
-          <div className="mt-4 h-24">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={netWorth?.net_worth >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor={netWorth?.net_worth >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb"/>
-                <XAxis dataKey="date" hide tick={{ fontSize: 10 }}/>
-                <YAxis hide domain={['dataMin', 'dataMax']} tick={{ fontSize: 10 }}/>
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      return (
-                        <div className="bg-white border rounded p-2 shadow-sm">
-                          <div className="text-sm font-medium">{payload[0].payload.date}</div>
-                          <div className="text-sm font-bold" style={{ color: netWorth?.net_worth >= 0 ? '#22c55e' : '#ef4444' }}>
-                            {formatCurrency(payload[0].value)}
-                          </div>
-                        </div>
-                      )
-                    }
-                    return null
-                  }}
-                />
-                <Area type="monotone" dataKey="netWorth" stroke={netWorth?.net_worth >= 0 ? '#22c55e' : '#ef4444'} strokeWidth={2} fillOpacity={1} fill="url(#colorNetWorth)"/>
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="bg-white border rounded-lg p-4">
-          <FinancialHealthScore month={selectedMonth} />
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-gray-500">Spent</div>
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-500">Net Worth</div>
+            <Wallet className="w-4 h-4 text-gray-400" />
+          </div>
+          <div className={`text-2xl font-bold ${accountBalances?.net_worth && accountBalances.net_worth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {formatCurrency(accountBalances?.net_worth || 0)}
+          </div>
+          {accountBalances?.change_from_last_month !== null && accountBalances?.change_from_last_month !== undefined && (
+            <div className={`text-xs flex items-center gap-1 mt-1 ${accountBalances.change_from_last_month >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {accountBalances.change_from_last_month >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+              {formatCurrency(Math.abs(accountBalances.change_from_last_month))} vs last month
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white border rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-500">Monthly Spend</div>
+            <CreditCard className="w-4 h-4 text-gray-400" />
+          </div>
           <div className="text-2xl font-bold text-red-600">
             {formatCurrency(summary?.total_expenses || 0)}
           </div>
           <div className="text-xs text-gray-500 mt-1">
-            {formatPercent(summary?.vs_last_month?.expense_change_pct || 0)} vs last month
+            {summary?.daily_average_spend && `${formatCurrency(summary.daily_average_spend)}/day avg`}
+            {summary?.projected_spend && ` • ${formatCurrency(summary.projected_spend)} projected`}
           </div>
         </div>
 
         <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-gray-500">Income</div>
-          <div className="text-2xl font-bold text-green-600">
-            {formatCurrency(summary?.total_income || 0)}
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-500">Savings Rate</div>
+            <PiggyBank className="w-4 h-4 text-gray-400" />
+          </div>
+          <div className={`text-2xl font-bold ${savingsRateColor}`}>
+            {savingsRate !== null ? `${savingsRate.toFixed(1)}%` : 'N/A'}
           </div>
           <div className="text-xs text-gray-500 mt-1">
-            {formatPercent(summary?.vs_last_month?.income_change_pct || 0)} vs last month
-          </div>
-        </div>
-
-        <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-gray-500">Budgets</div>
-          <div className="text-2xl font-bold">
-            {budgets?.total || 0}
-          </div>
-          <div className="text-xs text-gray-500 mt-1">
-            {budgets?.total > 0 ? 'Active this month' : 'No budgets set'}
+            {savingsRate === null ? 'No income this month' : savingsRate >= 20 ? 'Excellent!' : savingsRate >= 10 ? 'Good' : 'Needs improvement'}
           </div>
         </div>
       </div>
+
+      {accountBalances?.accounts && accountBalances.accounts.length > 0 && (
+        <div className="bg-white border rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Accounts</h2>
+            <Link to="/accounts" className="text-sm text-blue-600 hover:underline">
+              View all →
+            </Link>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {accountBalances.accounts.map((account) => (
+              <Link
+                key={account.id}
+                to={`/accounts/${account.id}`}
+                className="flex-shrink-0 min-w-[160px] p-3 border rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="text-xs text-gray-500 truncate">{account.name}</div>
+                <div className={`text-lg font-bold ${account.is_asset ? 'text-green-600' : 'text-red-600'}`}>
+                  {formatCurrency(account.calculated_balance)}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white border rounded-lg p-4">
@@ -204,20 +166,29 @@ export default function Dashboard() {
             </Link>
           </div>
           <div className="space-y-3">
-            {summary?.by_category?.slice(0, 8).map((cat) => (
-              <div key={cat.category_id}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>{cat.category_name}</span>
-                  <span className="font-medium">{formatCurrency(cat.amount)}</span>
+            {summary?.by_category?.slice(0, 8).map((cat) => {
+              const trend = categoryTrends?.categories.find(t => t.category_id === cat.category_id)
+              const isUp = trend && trend.change_pct && trend.change_pct > 0
+              const isDown = trend && trend.change_pct && trend.change_pct < 0
+              return (
+                <div key={cat.category_id}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="flex items-center gap-1">
+                      {cat.category_name}
+                      {isUp && <TrendingUp className="w-3 h-3 text-red-500" />}
+                      {isDown && <TrendingDown className="w-3 h-3 text-green-500" />}
+                    </span>
+                    <span className="font-medium">{formatCurrency(cat.amount)}</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2">
+                    <div
+                      className="bg-blue-500 h-2 rounded-full"
+                      style={{ width: `${Math.min(cat.percent, 100)}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-2">
-                  <div
-                    className="bg-blue-500 h-2 rounded-full"
-                    style={{ width: `${Math.min(cat.percent, 100)}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              )
+            })}
             {(!summary?.by_category || summary.by_category.length === 0) && (
               <p className="text-gray-500 text-sm">No expenses this month</p>
             )}
@@ -234,6 +205,22 @@ export default function Dashboard() {
           <BudgetSummaryWidget month={selectedMonth} />
         </div>
       </div>
+
+      {spendingSpikes.length > 0 && (
+        <div className="bg-white border rounded-lg p-4">
+          <h2 className="text-lg font-semibold mb-3">Spending Spikes</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {spendingSpikes.map((spike) => (
+              <div key={spike.category_id} className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <div className="font-medium text-red-800">{spike.category_name}</div>
+                <div className="text-sm text-red-600">
+                  {spike.change_pct && spike.change_pct > 0 ? '+' : ''}{spike.change_pct?.toFixed(0) || 0}% vs prior month
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white border rounded-lg p-4">

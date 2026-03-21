@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSettings, updateAISettings, updateAPIKeys, testAIConnection, fetchProviderModels, updateTaskModels } from '@/lib/api'
+import { getSettings, updateAISettings, updateAPIKeys, testAIConnection, fetchProviderModels, updateTaskModels, getAIUsage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { PrivacySettingsPanel } from '@/components/settings/PrivacySettings'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 interface Model {
   id: string
@@ -27,6 +28,11 @@ export default function Settings() {
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
+  })
+
+  const { data: aiUsage } = useQuery({
+    queryKey: ['ai-usage'],
+    queryFn: () => getAIUsage(30),
   })
 
   const updateMutation = useMutation({
@@ -307,6 +313,51 @@ export default function Settings() {
             </select>
           </div>
         </div>
+      </div>
+
+      <div className="border rounded-lg p-4 space-y-4">
+        <h2 className="text-lg font-semibold">AI Token Usage</h2>
+        <p className="text-sm text-gray-600">
+          Token usage over the last {aiUsage?.days || 30} days. This helps you understand your AI costs.
+        </p>
+
+        {aiUsage ? (
+          <>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-gray-50 rounded p-3">
+                <div className="text-sm text-gray-500">Prompt Tokens</div>
+                <div className="text-xl font-bold">{aiUsage.total_prompt_tokens.toLocaleString()}</div>
+              </div>
+              <div className="bg-gray-50 rounded p-3">
+                <div className="text-sm text-gray-500">Completion Tokens</div>
+                <div className="text-xl font-bold">{aiUsage.total_completion_tokens.toLocaleString()}</div>
+              </div>
+              <div className="bg-gray-50 rounded p-3">
+                <div className="text-sm text-gray-500">Total Tokens</div>
+                <div className="text-xl font-bold">{aiUsage.total_tokens.toLocaleString()}</div>
+              </div>
+            </div>
+
+            {aiUsage.by_task && aiUsage.by_task.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium mb-2">By Task</h3>
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={aiUsage.by_task} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                      <XAxis type="number" tick={{ fontSize: 11 }} />
+                      <YAxis dataKey="task" type="category" tick={{ fontSize: 11 }} width={80} />
+                      <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                      <Bar dataKey="total_tokens" fill="#3b82f6" name="Tokens" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="text-gray-500 text-sm">No usage data available</div>
+        )}
       </div>
 
       <div className="border rounded-lg p-4 space-y-4">

@@ -240,6 +240,11 @@ export interface VsLastMonth {
   expense_change_pct: number
 }
 
+export interface TopMerchant {
+  name: string
+  amount: number
+}
+
 export interface DashboardSummary {
   month: string
   total_income: number
@@ -247,6 +252,40 @@ export interface DashboardSummary {
   net: number
   by_category: CategoryTotal[]
   vs_last_month: VsLastMonth
+  savings_rate: number | null
+  daily_average_spend: number | null
+  projected_spend: number | null
+  top_merchant: TopMerchant | null
+  transaction_count: number
+}
+
+export interface AccountBalance {
+  id: string
+  name: string
+  account_type: string
+  calculated_balance: number
+  is_asset: boolean
+}
+
+export interface AccountBalancesResponse {
+  accounts: AccountBalance[]
+  total_assets: number
+  total_liabilities: number
+  net_worth: number
+  change_from_last_month: number | null
+}
+
+export interface CategoryTrend {
+  category_id: string
+  category_name: string
+  monthly_totals: { month: string; amount: number }[]
+  change_pct: number | null
+  is_spike: boolean
+}
+
+export interface CategoryTrendsResponse {
+  categories: CategoryTrend[]
+  months: string[]
 }
 
 export interface MonthTrend {
@@ -549,4 +588,97 @@ export interface RuleSuggestion {
 export interface RuleSuggestionsResponse {
   suggestions: RuleSuggestion[]
   total: number
+}
+
+export interface CategoryMonthlyTotal {
+  month: string
+  amount: number
+}
+
+export interface SpendingByCategoryResponse {
+  categories: { category_id: string; category_name: string; monthly_totals: CategoryMonthlyTotal[] }[]
+  months: string[]
+  total_by_category: Record<string, number>
+}
+
+export interface MerchantRanking {
+  merchant: string
+  total: number
+  transaction_count: number
+  average_amount: number
+  category: string
+  trend: string
+  change_pct: number | null
+}
+
+export interface MerchantRankingResponse {
+  merchants: MerchantRanking[]
+  months: number
+  total_spending: number
+}
+
+export interface MonthlySummary {
+  month: string
+  income: number
+  expenses: number
+  net: number
+  savings_rate: number | null
+  transaction_count: number
+}
+
+export interface MonthlySummaryResponse {
+  months: MonthlySummary[]
+  total_income: number
+  total_expenses: number
+}
+
+export interface Anomaly {
+  type: string
+  description: string
+  amount: number
+  category: string
+  severity: string
+  transaction_id: string | null
+}
+
+export interface AnomalyResponse {
+  anomalies: Anomaly[]
+  total: number
+}
+
+export interface SavedFormatMatch {
+  id: string
+  name: string
+  account_name: string
+  column_mapping: ColumnMapping
+  date_format: string
+}
+
+export interface ImportUploadResponse {
+  import_id: string
+  filename: string
+  row_count: number
+  headers: string[]
+  preview_rows: string[][]
+  detected_format?: DetectedFormat | null
+  saved_format?: SavedFormatMatch | null
+}
+
+export interface LearnedFormat {
+  id: string
+  name: string
+  fingerprint: string
+  account_id: string | null
+  account_name: string | null
+  column_mapping: ColumnMapping
+  date_format: string
+  created_at: string
+}
+
+export interface AIUsageResponse {
+  total_prompt_tokens: number
+  total_completion_tokens: number
+  total_tokens: number
+  by_task: { task: string; prompt_tokens: number; completion_tokens: number; total_tokens: number }[]
+  days: number
 }

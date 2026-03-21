@@ -166,6 +166,9 @@ async def get_preview_with_ai(
     db: Session, file_path: Path, import_id: str, filename: str
 ) -> ImportUploadResponse:
     """Get file preview with AI-detected column mapping"""
+    from app.models.learned_format import LearnedFormat
+    import hashlib
+
     parser = get_parser(file_path)
     if not parser:
         raise ValueError(f"No parser available for file type: {file_path.suffix}")
@@ -173,10 +176,46 @@ async def get_preview_with_ai(
     headers, preview_rows = parser.get_preview(file_path)
 
     detected_format = None
+    saved_format = None
     balance = None
     row_count = 0
+    header_fingerprint = None
 
     if isinstance(parser, CSVParser):
+        header_fingerprint = hashlib.sha256(
+            "|".join(sorted([h.lower().strip() for h in headers])).encode()
+        ).hexdigest()
+
+        existing_format = (
+            db.query(LearnedFormat)
+            .filter(LearnedFormat.fingerprint == header_fingerprint)
+            .first()
+        )
+        if existing_format:
+            from app.models.account import Account
+
+            account_name = None
+            if existing_format.account_id:
+                account = (
+                    db.query(Account)
+                    .filter(Account.id == existing_format.account_id)
+                    .first()
+                )
+                account_name = account.name if account else None
+            saved_format = {
+                "format_id": str(existing_format.id),
+                "name": existing_format.name,
+                "account_id": str(existing_format.account_id)
+                if existing_format.account_id
+                else None,
+                "account_name": account_name,
+                "column_mapping": existing_format.column_mapping,
+                "date_format": existing_format.date_format,
+                "amount_style": existing_format.amount_style.value
+                if hasattr(existing_format.amount_style, "value")
+                else existing_format.amount_style,
+            }
+
         detected_format = await detect_csv_format(db, headers, preview_rows)
         with open(file_path, "r", encoding="utf-8-sig") as f:
             row_count = sum(1 for _ in f) - 1
@@ -194,6 +233,10 @@ async def get_preview_with_ai(
         "parser_type": type(parser).__name__,
         "detected_format": detected_format,
         "extracted_balance": float(balance) if balance else None,
+        "header_fingerprint": header_fingerprint
+        if isinstance(parser, CSVParser)
+        else None,
+        "headers": headers if isinstance(parser, CSVParser) else None,
     }
 
     return ImportUploadResponse(
@@ -204,6 +247,7 @@ async def get_preview_with_ai(
         preview_rows=preview_rows,
         detected_format=detected_format,
         extracted_balance=float(balance) if balance else None,
+        saved_format=saved_format,
     )
 
 
@@ -592,6 +636,16 @@ async def process_import(
             import_log.error_message = "; ".join(errors[:10])
         db.commit()
 
+        if (
+            imported > 0
+            and pending.get("header_fingerprint")
+            and pending.get("headers")
+        ):
+            try:
+                _auto_save_format(db, pending, request, filename)
+            except Exception as e:
+                logger.warning(f"Failed to auto-save format: {e}")
+
         processed_path = Path(settings.import_processed_path)
         processed_path.mkdir(parents=True, exist_ok=True)
         shutil.move(str(file_path), str(processed_path / file_path.name))
@@ -774,6 +828,67 @@ def _get_cached_categorizations(
             }
 
     return result
+
+
+def _auto_save_format(
+    db: Session,
+    pending: Dict[str, Any],
+    request: ImportConfirmRequest,
+    filename: str,
+) -> None:
+    """Auto-save the import format after successful import."""
+    from app.models.learned_format import LearnedFormat, FileType, AmountStyle
+    from app.models.account import Account
+
+    fingerprint = pending.get("header_fingerprint")
+    headers = pending.get("headers")
+
+    if not fingerprint or not headers:
+        return
+
+    account_id = request.account_id
+    account_name = None
+    if account_id:
+        account = db.query(Account).filter(Account.id == account_id).first()
+        account_name = account.name if account else "Unknown"
+
+    existing = (
+        db.query(LearnedFormat)
+        .filter(
+            LearnedFormat.fingerprint == fingerprint,
+            LearnedFormat.account_id == account_id,
+        )
+        .first()
+    )
+
+    column_mapping = {
+        "date_col": request.column_mapping.date_col,
+        "amount_col": request.column_mapping.amount_col,
+        "description_col": request.column_mapping.description_col,
+        "debit_col": request.column_mapping.debit_col,
+        "credit_col": request.column_mapping.credit_col,
+        "account_col": request.column_mapping.account_col,
+    }
+
+    if existing:
+        existing.column_mapping = column_mapping
+        existing.date_format = request.date_format or "auto"
+        logger.info(f"Updated existing format: {existing.name}")
+    else:
+        format_name = f"{account_name or 'Unknown'} - {filename}"
+        fmt = LearnedFormat(
+            name=format_name[:100],
+            fingerprint=fingerprint,
+            file_type=FileType.csv,
+            column_mapping=column_mapping,
+            date_format=request.date_format or "auto",
+            amount_style=AmountStyle.signed,
+            account_id=account_id,
+        )
+        db.add(fmt)
+        logger.info(f"Auto-saved new format: {format_name}")
+
+    db.commit()
 
 
 def get_import_history(db: Session, limit: int = 20):

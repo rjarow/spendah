@@ -2,8 +2,9 @@
 Import API endpoints.
 """
 
+import hashlib
 import logging
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_db
@@ -12,8 +13,13 @@ from app.schemas.import_file import (
     ImportConfirmRequest,
     ImportStatusResponse,
     ImportLogResponse,
+    SavedFormatResponse,
+    SavedFormatListResponse,
+    SavedFormatMatch,
 )
 from app.services import import_service
+from app.models.learned_format import LearnedFormat, FileType
+from app.models.account import Account
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +76,7 @@ async def confirm_import(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).error(f"Import confirm error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to process import")
 
@@ -88,3 +95,147 @@ def get_import_history(limit: int = 20, db: Session = Depends(get_db)):
     """Get import history"""
     logs = import_service.get_import_history(db, limit)
     return [ImportLogResponse.model_validate(log) for log in logs]
+
+
+@router.get("/formats", response_model=SavedFormatListResponse)
+def list_formats(db: Session = Depends(get_db)):
+    """List all saved import formats"""
+    formats = db.query(LearnedFormat).order_by(LearnedFormat.created_at.desc()).all()
+
+    items = []
+    for fmt in formats:
+        account_name = None
+        if fmt.account_id:
+            account = db.query(Account).filter(Account.id == fmt.account_id).first()
+            account_name = account.name if account else None
+
+        items.append(
+            SavedFormatResponse(
+                id=str(fmt.id),
+                name=fmt.name,
+                fingerprint=fmt.fingerprint,
+                file_type=fmt.file_type.value
+                if hasattr(fmt.file_type, "value")
+                else fmt.file_type,
+                column_mapping=fmt.column_mapping,
+                date_format=fmt.date_format,
+                amount_style=fmt.amount_style.value
+                if hasattr(fmt.amount_style, "value")
+                else fmt.amount_style,
+                account_id=str(fmt.account_id) if fmt.account_id else None,
+                account_name=account_name,
+                created_at=fmt.created_at,
+            )
+        )
+
+    return SavedFormatListResponse(items=items, total=len(items))
+
+
+@router.get("/formats/match", response_model=SavedFormatMatch)
+def match_format(fingerprint: str = Query(...), db: Session = Depends(get_db)):
+    """Find a saved format matching a header fingerprint"""
+    fmt = (
+        db.query(LearnedFormat).filter(LearnedFormat.fingerprint == fingerprint).first()
+    )
+
+    if not fmt:
+        raise HTTPException(status_code=404, detail="No matching format found")
+
+    account_name = None
+    if fmt.account_id:
+        account = db.query(Account).filter(Account.id == fmt.account_id).first()
+        account_name = account.name if account else None
+
+    return SavedFormatMatch(
+        format_id=str(fmt.id),
+        name=fmt.name,
+        account_id=str(fmt.account_id) if fmt.account_id else None,
+        account_name=account_name,
+        column_mapping=fmt.column_mapping,
+        date_format=fmt.date_format,
+        amount_style=fmt.amount_style.value
+        if hasattr(fmt.amount_style, "value")
+        else fmt.amount_style,
+    )
+
+
+@router.post("/formats", response_model=SavedFormatResponse)
+def save_format(
+    name: str,
+    fingerprint: str,
+    file_type: str,
+    column_mapping: dict,
+    date_format: str,
+    amount_style: str,
+    account_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Save a new import format"""
+    from app.models.learned_format import FileType, AmountStyle
+
+    try:
+        ft = FileType(file_type)
+        as_ = AmountStyle(amount_style)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid enum value: {e}")
+
+    existing = (
+        db.query(LearnedFormat)
+        .filter(
+            LearnedFormat.fingerprint == fingerprint,
+            LearnedFormat.account_id == account_id,
+        )
+        .first()
+    )
+
+    if existing:
+        existing.name = name
+        existing.column_mapping = column_mapping
+        existing.date_format = date_format
+        existing.amount_style = as_
+        db.commit()
+        db.refresh(existing)
+        fmt = existing
+    else:
+        fmt = LearnedFormat(
+            name=name,
+            fingerprint=fingerprint,
+            file_type=ft,
+            column_mapping=column_mapping,
+            date_format=date_format,
+            amount_style=as_,
+            account_id=account_id,
+        )
+        db.add(fmt)
+        db.commit()
+        db.refresh(fmt)
+
+    account_name = None
+    if fmt.account_id:
+        account = db.query(Account).filter(Account.id == fmt.account_id).first()
+        account_name = account.name if account else None
+
+    return SavedFormatResponse(
+        id=str(fmt.id),
+        name=fmt.name,
+        fingerprint=fmt.fingerprint,
+        file_type=fmt.file_type.value,
+        column_mapping=fmt.column_mapping,
+        date_format=fmt.date_format,
+        amount_style=fmt.amount_style.value,
+        account_id=str(fmt.account_id) if fmt.account_id else None,
+        account_name=account_name,
+        created_at=fmt.created_at,
+    )
+
+
+@router.delete("/formats/{format_id}")
+def delete_format(format_id: str, db: Session = Depends(get_db)):
+    """Delete a saved format"""
+    fmt = db.query(LearnedFormat).filter(LearnedFormat.id == format_id).first()
+    if not fmt:
+        raise HTTPException(status_code=404, detail="Format not found")
+
+    db.delete(fmt)
+    db.commit()
+    return {"status": "deleted"}

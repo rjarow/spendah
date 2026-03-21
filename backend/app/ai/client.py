@@ -1,5 +1,6 @@
 import logging
 import litellm
+import uuid
 from typing import Optional, Dict, Any, Literal
 import json
 from sqlalchemy.orm import Session
@@ -20,6 +21,8 @@ class AIClient:
         self._task = task
         self.model = self._get_model_string()
         self._configure_provider()
+
+        self._last_usage: Optional[Dict[str, int]] = None
 
     def _get_task_model(self) -> Optional[str]:
         """Get task-specific model from database if configured."""
@@ -71,12 +74,18 @@ class AIClient:
             elif provider == "openai" and ai_settings.openai_api_key:
                 return ai_settings.openai_api_key
 
-        if provider == "openrouter":
-            return settings.openrouter_api_key
-        elif provider == "anthropic":
-            return settings.anthropic_api_key
-        elif provider == "openai":
-            return settings.openai_api_key
+            if provider == "ollama":
+                return None
+
+        else:
+            if provider == "openrouter":
+                return settings.openrouter_api_key
+            elif provider == "anthropic":
+                return settings.anthropic_api_key
+            elif provider == "openai":
+                return settings.openai_api_key
+            elif provider == "ollama":
+                return None
 
         return None
 
@@ -88,6 +97,45 @@ class AIClient:
             self._api_base = settings.ai_base_url or "http://localhost:11434"
         else:
             self._api_base = None
+
+        self._last_usage = None
+
+    def _record_usage(self, response) -> None:
+        """Extract and record token usage from response."""
+        if not self._db:
+            return
+
+        try:
+            usage = getattr(response, "usage", None)
+            if usage:
+                self._last_usage = {
+                    "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(usage, "completion_tokens", 0),
+                    "total_tokens": getattr(usage, "total_tokens", 0),
+                }
+
+                from app.models.ai_token_usage import AITokenUsage
+
+                record = AITokenUsage(
+                    id=str(uuid.uuid4()),
+                    task=self._task or "unknown",
+                    provider=self.provider,
+                    model=self.model,
+                    prompt_tokens=self._last_usage["prompt_tokens"],
+                    completion_tokens=self._last_usage["completion_tokens"],
+                    total_tokens=self._last_usage["total_tokens"],
+                )
+                self._db.add(record)
+                self._db.commit()
+                logger.debug(
+                    f"Recorded token usage: {self._last_usage['total_tokens']} tokens for task '{self._task}'"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to record token usage: {e}")
+
+    def get_last_usage(self) -> Optional[Dict[str, int]]:
+        """Get the last recorded token usage."""
+        return self._last_usage
 
     async def complete(
         self,
@@ -120,6 +168,7 @@ class AIClient:
                 kwargs["api_base"] = self._api_base
 
             response = await litellm.acompletion(**kwargs)
+            self._record_usage(response)
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"AI completion error: {e}")

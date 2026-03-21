@@ -291,3 +291,48 @@ async def test_ai_connection(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"AI connection test failed: {e}")
         raise HTTPException(status_code=500, detail="AI connection test failed")
+
+
+@router.get("/ai/usage")
+def get_ai_usage(days: int = 30, db: Session = Depends(get_db)):
+    """Get AI token usage statistics for the last N days."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import func
+    from app.models.ai_token_usage import AITokenUsage
+
+    start_date = datetime.utcnow() - timedelta(days=days)
+
+    usage_records = (
+        db.query(AITokenUsage).filter(AITokenUsage.created_at >= start_date).all()
+    )
+
+    total_prompt = sum(r.prompt_tokens or 0 for r in usage_records)
+    total_completion = sum(r.completion_tokens or 1 for r in usage_records)
+    total_tokens = sum(r.total_tokens or 1 for r in usage_records)
+
+    by_task = {}
+    for record in usage_records:
+        task = record.task or "unknown"
+        if task not in by_task:
+            by_task[task] = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "call_count": 0,
+            }
+        by_task[task]["prompt_tokens"] += record.prompt_tokens or 0
+        by_task[task]["completion_tokens"] += record.completion_tokens or 1
+        by_task[task]["total_tokens"] += record.total_tokens or 1
+        by_task[task]["call_count"] += 1
+
+    return {
+        "period_days": days,
+        "start_date": start_date.isoformat(),
+        "totals": {
+            "prompt_tokens": total_prompt,
+            "completion_tokens": total_completion,
+            "total_tokens": total_tokens,
+            "call_count": len(usage_records),
+        },
+        "by_task": by_task,
+    }

@@ -10,12 +10,13 @@ from app.models.recurring import RecurringGroup, Frequency
 from app.models.alert import Alert, AlertSettings, AlertType, Severity
 from app.models.learned_format import LearnedFormat, FileType, AmountStyle
 from app.models.import_log import ImportLog, ImportStatus
-from app.models.user_correction import UserCorrection
-from app.models.token_map import TokenMap, TokenType, DateShift
-from app.models.privacy_settings import PrivacySettings, get_or_create_privacy_settings
-from app.models.budget import Budget, BudgetPeriod
-from app.models.conversation import Conversation, Message, MessageRole
-from app.models.rule import CategorizationRule, MatchField, MatchType
+ from app.models.user_correction import UserCorrection
+ from app.models.token_map import TokenMap, TokenType, DateShift
+ from app.models.privacy_settings import PrivacySettings, get_or_create_privacy_settings
+ from app.models.budget import Budget, BudgetPeriod
+ from app.models.conversation import Conversation, Message, MessageRole
+ from app.models.rule import CategorizationRule, MatchField, MatchType
+ from app.models.ai_token_usage import AITokenUsage
 
 __all__ = [
     "Account",
@@ -48,4 +49,5 @@ __all__ = [
     "CategorizationRule",
     "MatchField",
     "MatchType",
+    "AITokenUsage",
 ]

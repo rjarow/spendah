@@ -41,6 +41,7 @@ class ImportUploadResponse(BaseModel):
     preview_rows: List[List[str]]
     detected_format: Optional[Dict[str, Any]] = None
     extracted_balance: Optional[float] = None
+    saved_format: Optional["SavedFormatMatch"] = None
 
     class Config:
         from_attributes = True
@@ -79,12 +80,43 @@ class ImportStatusResponse(BaseModel):
 class ImportLogResponse(BaseModel):
     id: str
     filename: str
-    account_id: str
+    account_id: Optional[str] = None
     status: ImportStatus
     transactions_imported: int
     transactions_skipped: int
-    error_message: Optional[str]
+    error_message: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class SavedFormatResponse(BaseModel):
+    id: str
+    name: str
+    fingerprint: str
+    file_type: str
+    column_mapping: Dict[str, Any]
+    date_format: str
+    amount_style: str
+    account_id: Optional[str] = None
+    account_name: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SavedFormatListResponse(BaseModel):
+    items: List[SavedFormatResponse]
+    total: int
+
+
+class SavedFormatMatch(BaseModel):
+    format_id: str
+    name: str
+    account_id: Optional[str] = None
+    account_name: Optional[str] = None
+    column_mapping: Dict[str, Any]
+    date_format: str
+    amount_style: str

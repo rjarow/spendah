@@ -7,9 +7,13 @@ export type AccountType = "checking" | "savings" | "credit_card" | "investment" 
 export interface Account {
   id: string
   name: string
-  type: AccountType
+  account_type: AccountType
   learned_format_id: string | null
   is_active: boolean
+  current_balance: number
+  calculated_balance: number | null
+  is_stale: boolean
+  balance_updated_at: string | null
   created_at: string
 }
 
@@ -26,12 +30,13 @@ export interface Category {
 
 export interface AccountCreate {
   name: string
-  type: AccountType
+  account_type: AccountType
+  starting_balance?: number
 }
 
 export interface AccountUpdate {
   name?: string
-  type?: AccountType
+  account_type?: AccountType
   is_active?: boolean
   current_balance?: number
   balance_updated_at?: string
@@ -45,11 +50,16 @@ export interface NetWorthSummary {
 
 export interface AccountWithBalance extends Account {
   current_balance: number
+  calculated_balance: number | null
+  is_stale: boolean
+  is_asset: boolean
   balance_updated_at: string
 }
 
 export interface NetWorthBreakdown {
-  summary: NetWorthSummary
+  total_assets: number
+  total_liabilities: number
+  net_worth: number
   accounts: AccountWithBalance[]
 }
 
@@ -83,6 +93,7 @@ export interface ColumnMapping {
   debit_col?: number
   credit_col?: number
   balance_col?: number
+  account_col?: number
 }
 
 export interface ImportUploadResponse {
@@ -102,6 +113,26 @@ export interface AISettings {
   detect_format: boolean
 }
 
+export interface APIKeys {
+  openrouter_api_key: string | null
+  openai_api_key: string | null
+  anthropic_api_key: string | null
+}
+
+export interface TaskModels {
+  categorize: string | null
+  merchant_clean: string | null
+  format_detect: string | null
+  coach: string | null
+}
+
+export interface TaskModelsUpdate {
+  categorize?: string | null
+  merchant_clean?: string | null
+  format_detect?: string | null
+  coach?: string | null
+}
+
 export interface AvailableProvider {
   id: string
   name: string
@@ -111,6 +142,8 @@ export interface AvailableProvider {
 
 export interface SettingsResponse {
   ai: AISettings
+  api_keys: APIKeys
+  task_models: TaskModels
   available_providers: AvailableProvider[]
 }
 
@@ -123,6 +156,7 @@ export interface DetectedFormat {
     debit: number | null
     credit: number | null
     balance: number | null
+    account: number | null
   }
   date_format: string
   amount_style: 'signed' | 'separate_columns' | 'parentheses_negative'
@@ -132,11 +166,15 @@ export interface DetectedFormat {
 }
 
 export interface ImportConfirmRequest {
-  account_id: string
+  account_id?: string
   column_mapping: ColumnMapping
   date_format: string
   save_format?: boolean
   format_name?: string
+  update_balance?: boolean
+  new_balance?: number
+  auto_create_accounts?: boolean
+  default_account_type?: string
 }
 
 export interface ImportStatusResponse {
@@ -161,9 +199,8 @@ export interface ImportLogResponse {
 
 export interface Transaction {
   id: string
-  hash: string
   date: string
-  amount: string
+  amount: number
   raw_description: string
   clean_merchant: string | null
   category_id: string | null
@@ -177,10 +214,11 @@ export interface Transaction {
 }
 
 export interface TransactionUpdate {
-  clean_merchant?: string
-  category_id?: string
-  notes?: string
+  category_id?: string | null
+  clean_merchant?: string | null
+  notes?: string | null
   is_recurring?: boolean
+  recurring_group_id?: string | null
 }
 
 export interface TransactionListResponse {
@@ -355,20 +393,25 @@ export type BudgetPeriod = 'weekly' | 'monthly' | 'yearly'
 export interface Budget {
   id: string
   category_id: string | null
-  category_name: string
+  category_name: string | null
   amount: number
   period: BudgetPeriod
   start_date: string
-  current_period_spent: number
+  spent: number
   remaining: number
   percent_used: number
   is_over_budget: boolean
-  created_at: string
-  updated_at: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface BudgetProgress {
-  budget_id: string
+  id: string
+  category_id: string | null
+  category_name: string | null
+  amount: number
+  period: BudgetPeriod
+  start_date: string
   spent: number
   remaining: number
   percent_used: number
@@ -387,4 +430,53 @@ export interface BudgetUpdate {
   amount?: number
   period?: BudgetPeriod
   start_date?: string
+}
+
+// Coach types
+export interface ChatRequest {
+  message: string
+  conversation_id?: string
+}
+
+export interface ChatResponse {
+  response: string
+  conversation_id: string
+  message_id: string
+}
+
+export interface CoachMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+export interface ConversationSummary {
+  id: string
+  title: string | null
+  summary: string | null
+  last_message_at: string
+  message_count: number
+  is_archived: boolean
+}
+
+export interface ConversationDetail {
+  id: string
+  title: string | null
+  summary: string | null
+  started_at: string
+  last_message_at: string
+  is_archived: boolean
+  messages: CoachMessage[]
+}
+
+export interface ConversationList {
+  items: ConversationSummary[]
+  total: number
+}
+
+export interface QuickQuestion {
+  id: string
+  text: string
+  category: string
 }

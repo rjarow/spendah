@@ -17,7 +17,7 @@ class AccountBase(BaseModel):
 
 class AccountCreate(AccountBase):
     """Schema for creating an account."""
-    pass
+    starting_balance: Optional[Decimal] = None
 
 
 class AccountUpdate(BaseModel):

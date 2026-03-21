@@ -99,6 +99,26 @@ def calculate_all_account_balances(db: Session) -> dict:
     return balances
 
 
+def get_calculated_balance(db: Session, account: "Account") -> tuple:
+    """
+    Return (calculated_balance, is_stale) for an account.
+
+    Args:
+        db: Database session
+        account: Account model instance
+
+    Returns:
+        Tuple of (float, bool) — calculated balance and whether it differs from current_balance
+    """
+    try:
+        calculated = calculate_balance_from_transactions(db, str(account.id))
+        manual = account.current_balance if account.current_balance is not None else Decimal("0.00")
+        is_stale = calculated != manual
+        return (float(calculated), is_stale)
+    except BalanceInferenceError:
+        return (float(account.current_balance or 0), False)
+
+
 def get_balance_difference(db: Session, account_id: str) -> dict:
     """
     Get the difference between manual balance and calculated balance.

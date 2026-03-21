@@ -14,12 +14,13 @@ from app.models.transaction import Transaction
 
 class NetWorthError(Exception):
     """Base exception for net worth errors."""
+
     pass
 
 
 def get_current_networth(db: Session) -> Decimal:
     """
-    Calculate current net worth from all account balances.
+    Calculate current net worth from calculated (transaction-derived) balances.
 
     Assets (bank, debit, cash) contribute positively.
     Liabilities (credit) contribute negatively.
@@ -30,19 +31,22 @@ def get_current_networth(db: Session) -> Decimal:
     Returns:
         Total net worth as Decimal
     """
+    from app.services.balance_inference import get_calculated_balance
+
     accounts = db.query(Account).filter(Account.is_active == True).all()
 
     net_worth = Decimal("0.00")
 
     for account in accounts:
+        calc_bal, _ = get_calculated_balance(db, account)
+        balance = Decimal(str(calc_bal))
         if account.is_asset:
-            net_worth += account.current_balance
+            net_worth += balance
         else:
-            # Liabilities should be subtracted as positive value
-            if account.current_balance < 0:
-                net_worth -= abs(account.current_balance)
+            if balance < 0:
+                net_worth -= abs(balance)
             else:
-                net_worth -= account.current_balance
+                net_worth -= balance
 
     return net_worth
 
@@ -50,11 +54,12 @@ def get_current_networth(db: Session) -> Decimal:
 def get_networth_breakdown(db: Session) -> Dict[str, Any]:
     """
     Get detailed breakdown of net worth by account type.
+    Uses calculated (transaction-derived) balances for totals.
 
     Returns:
         Dictionary with total_assets, total_liabilities, net_worth, and list of accounts
     """
-    from app.services.balance_inference import get_balance_difference, get_accounts_with_stale_balances
+    from app.services.balance_inference import get_calculated_balance
 
     accounts = db.query(Account).filter(Account.is_active == True).all()
 
@@ -62,37 +67,30 @@ def get_networth_breakdown(db: Session) -> Dict[str, Any]:
     total_liabilities = Decimal("0.00")
     accounts_data = []
 
-    stale_accounts = get_accounts_with_stale_balances(db)
-
     for account in accounts:
-        calculated_balance = None
-        is_stale = False
-
-        try:
-            diff_info = get_balance_difference(db, str(account.id))
-            calculated_balance = diff_info["calculated_balance"]
-            is_stale = diff_info["is_stale"]
-        except Exception:
-            pass
+        calc_bal, is_stale = get_calculated_balance(db, account)
+        balance = Decimal(str(calc_bal))
 
         account_info = {
             "id": str(account.id),
             "name": account.name,
             "account_type": account.account_type.value,
-            "current_balance": float(account.current_balance) if account.current_balance is not None else 0.0,
-            "calculated_balance": calculated_balance,
+            "current_balance": float(account.current_balance)
+            if account.current_balance is not None
+            else 0.0,
+            "calculated_balance": calc_bal,
             "is_stale": is_stale,
-            "is_asset": account.is_asset
+            "is_asset": account.is_asset,
+            "balance_updated_at": account.balance_updated_at.isoformat() if account.balance_updated_at else None,
         }
 
         if account.is_asset:
-            total_assets += account.current_balance
+            total_assets += balance
         else:
-            # Liabilities should be added as positive value
-            if account.current_balance < 0:
-                total_liabilities += abs(account.current_balance)
+            if balance < 0:
+                total_liabilities += abs(balance)
             else:
-                total_liabilities += account.current_balance
+                total_liabilities += balance
 
         accounts_data.append(account_info)
 
@@ -102,11 +100,13 @@ def get_networth_breakdown(db: Session) -> Dict[str, Any]:
         "total_assets": float(total_assets),
         "total_liabilities": float(total_liabilities),
         "net_worth": float(net_worth),
-        "accounts": accounts_data
+        "accounts": accounts_data,
     }
 
 
-def record_balance_snapshot(db: Session, account_id: str, balance: Decimal, recorded_date: date = None) -> BalanceHistory:
+def record_balance_snapshot(
+    db: Session, account_id: str, balance: Decimal, recorded_date: date = None
+) -> BalanceHistory:
     """
     Record a balance snapshot for an account.
 
@@ -136,7 +136,7 @@ def record_balance_snapshot(db: Session, account_id: str, balance: Decimal, reco
         snapshot = BalanceHistory(
             account_id=str(account_id),
             balance=float(balance),
-            recorded_at=recorded_date
+            recorded_at=recorded_date,
         )
 
         db.add(snapshot)
@@ -150,7 +150,9 @@ def record_balance_snapshot(db: Session, account_id: str, balance: Decimal, reco
         raise NetWorthError(f"Failed to record balance snapshot: {str(e)}")
 
 
-def get_networth_history(db: Session, start_date: date, end_date: date = None) -> List[Dict[str, Any]]:
+def get_networth_history(
+    db: Session, start_date: date, end_date: date = None
+) -> List[Dict[str, Any]]:
     """
     Get net worth history from balance snapshots.
 
@@ -167,44 +169,57 @@ def get_networth_history(db: Session, start_date: date, end_date: date = None) -
 
     accounts = db.query(Account).filter(Account.is_active == True).all()
 
-    asset_accounts = [str(acc.id) for acc in accounts if acc.is_asset]
-    liability_accounts = [str(acc.id) for acc in accounts if not acc.is_asset]
+    asset_accounts = {str(acc.id) for acc in accounts if acc.is_asset}
+    liability_accounts = {str(acc.id) for acc in accounts if not acc.is_asset}
 
     if not asset_accounts and not liability_accounts:
         return []
 
-    snapshots = db.query(BalanceHistory).filter(
-        BalanceHistory.recorded_at >= start_date,
-        BalanceHistory.recorded_at <= end_date,
-        BalanceHistory.account_id.in_(asset_accounts + liability_accounts)
-    ).order_by(BalanceHistory.recorded_at.asc()).all()
+    snapshots = (
+        db.query(BalanceHistory)
+        .filter(
+            BalanceHistory.recorded_at >= start_date,
+            BalanceHistory.recorded_at <= end_date,
+            BalanceHistory.account_id.in_(asset_accounts | liability_accounts),
+        )
+        .order_by(BalanceHistory.recorded_at.asc())
+        .all()
+    )
 
     if not snapshots:
         return []
 
-    history = []
+    balance_lookup: Dict[tuple, Decimal] = {}
+    for s in snapshots:
+        key = (s.recorded_at, s.account_id)
+        balance_lookup[key] = (
+            Decimal(str(s.balance)) if s.balance is not None else Decimal("0.00")
+        )
+
     unique_dates = sorted(set(s.recorded_at for s in snapshots))
 
+    history = []
     for unique_date in unique_dates:
         total_net_worth = Decimal("0.00")
 
         for acc_id in asset_accounts:
-            balance_value = _get_account_balance_at_date(db, acc_id, unique_date, asset=True)
+            balance_value = balance_lookup.get((unique_date, acc_id), Decimal("0.00"))
             total_net_worth += balance_value
 
         for acc_id in liability_accounts:
-            balance_value = _get_account_balance_at_date(db, acc_id, unique_date, asset=False)
-            total_net_worth += balance_value
+            balance_value = balance_lookup.get((unique_date, acc_id), Decimal("0.00"))
+            total_net_worth -= abs(balance_value)
 
-        history.append({
-            "date": unique_date.isoformat(),
-            "net_worth": float(total_net_worth)
-        })
+        history.append(
+            {"date": unique_date.isoformat(), "net_worth": float(total_net_worth)}
+        )
 
     return history
 
 
-def _get_account_balance_at_date(db: Session, account_id: str, record_date: date, asset: bool) -> Decimal:
+def _get_account_balance_at_date(
+    db: Session, account_id: str, record_date: date, asset: bool
+) -> Decimal:
     """
     Get balance for an account at a specific date.
 
@@ -217,12 +232,20 @@ def _get_account_balance_at_date(db: Session, account_id: str, record_date: date
     Returns:
         Balance as Decimal
     """
-    balance_result = db.query(BalanceHistory.balance).filter(
-        BalanceHistory.account_id == account_id,
-        BalanceHistory.recorded_at == record_date
-    ).first()
+    balance_result = (
+        db.query(BalanceHistory.balance)
+        .filter(
+            BalanceHistory.account_id == account_id,
+            BalanceHistory.recorded_at == record_date,
+        )
+        .first()
+    )
 
-    balance_value = balance_result[0] if balance_result and balance_result[0] is not None else Decimal("0.00")
+    balance_value = (
+        balance_result[0]
+        if balance_result and balance_result[0] is not None
+        else Decimal("0.00")
+    )
     return Decimal(str(balance_value))
 
 
@@ -238,6 +261,8 @@ def auto_snapshot_all_balances(db: Session) -> Dict[str, int]:
     Returns:
         Dictionary with total snapshots created and error count
     """
+    from app.services.balance_inference import get_calculated_balance
+
     accounts = db.query(Account).filter(Account.is_active == True).all()
 
     created = 0
@@ -245,12 +270,10 @@ def auto_snapshot_all_balances(db: Session) -> Dict[str, int]:
 
     for account in accounts:
         try:
-            record_balance_snapshot(db, account.id, account.current_balance)
+            calc_bal, _ = get_calculated_balance(db, account)
+            record_balance_snapshot(db, account.id, Decimal(str(calc_bal)))
             created += 1
         except NetWorthError:
             errors += 1
 
-    return {
-        "total_snapshots": created,
-        "errors": errors
-    }
+    return {"total_snapshots": created, "errors": errors}

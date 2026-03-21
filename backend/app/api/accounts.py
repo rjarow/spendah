@@ -15,8 +15,26 @@ from app.schemas.account import (
     AccountResponse,
     AccountList,
 )
+from app.services.balance_inference import get_calculated_balance
 
 router = APIRouter(tags=["accounts"])
+
+
+def _enrich_account(db: Session, account: Account) -> AccountResponse:
+    """Build AccountResponse with calculated_balance and is_stale."""
+    calc_bal, is_stale = get_calculated_balance(db, account)
+    return AccountResponse(
+        id=str(account.id),
+        name=account.name,
+        account_type=account.account_type,
+        learned_format_id=account.learned_format_id,
+        is_active=account.is_active,
+        created_at=account.created_at,
+        current_balance=account.current_balance,
+        balance_updated_at=account.balance_updated_at,
+        calculated_balance=calc_bal,
+        is_stale=is_stale,
+    )
 
 
 @router.get("", response_model=AccountList)
@@ -30,7 +48,7 @@ def list_accounts(
     total = db.query(Account).filter(Account.is_active == True).count()
 
     return AccountList(
-        items=accounts,
+        items=[_enrich_account(db, a) for a in accounts],
         total=total
     )
 
@@ -43,12 +61,13 @@ def create_account(
     """Create a new account."""
     db_account = Account(
         name=account.name,
-        account_type=account.account_type
+        account_type=account.account_type,
+        current_balance=account.starting_balance if account.starting_balance is not None else 0,
     )
     db.add(db_account)
     db.commit()
     db.refresh(db_account)
-    return db_account
+    return _enrich_account(db, db_account)
 
 
 @router.get("/{account_id}", response_model=AccountResponse)
@@ -60,7 +79,7 @@ def get_account(
     account = db.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    return account
+    return _enrich_account(db, account)
 
 
 @router.patch("/{account_id}", response_model=AccountResponse)
@@ -87,7 +106,7 @@ def update_account(
 
     db.commit()
     db.refresh(account)
-    return account
+    return _enrich_account(db, account)
 
 
 @router.delete("/{account_id}", status_code=204)
@@ -133,7 +152,7 @@ def update_account_balance(
         db.commit()
         db.refresh(account)
 
-        return account
+        return _enrich_account(db, account)
     except NetWorthError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

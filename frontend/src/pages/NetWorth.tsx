@@ -1,58 +1,36 @@
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getNetWorth, getNetWorthBreakdown, updateAccountBalance } from '@/lib/api'
-import { formatCurrency, formatDate } from '@/lib/formatters'
+import { useQuery } from '@tanstack/react-query'
+import { getNetWorthBreakdown } from '@/lib/api'
+import { formatCurrency } from '@/lib/formatters'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { Wallet, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react'
+import { Wallet, TrendingUp, TrendingDown, RefreshCw, ChevronRight } from 'lucide-react'
 import type { AccountWithBalance } from '@/types'
 import NetWorthChart from '@/components/NetWorthChart'
 
 const accountTypeLabels: Record<string, string> = {
-  bank: 'Bank',
-  credit: 'Credit Card',
-  debit: 'Debit Card',
+  checking: 'Checking',
+  savings: 'Savings',
+  credit_card: 'Credit Card',
+  investment: 'Investment',
+  loan: 'Loan',
+  mortgage: 'Mortgage',
   cash: 'Cash',
   other: 'Other',
 }
 
 export default function NetWorth() {
-  const queryClient = useQueryClient()
-  const [editingBalance, setEditingBalance] = useState<{ accountId: string; currentBalance: number } | null>(null)
-  const [showUpdateForm, setShowUpdateForm] = useState<Record<string, boolean>>({})
-
   const { data: breakdown, isLoading: breakdownLoading, refetch } = useQuery({
     queryKey: ['net-worth-breakdown'],
     queryFn: getNetWorthBreakdown,
     refetchOnWindowFocus: false,
   })
 
-  const updateBalanceMutation = useMutation({
-    mutationFn: ({ id, balance }: { id: string; balance: number }) => updateAccountBalance(id, balance),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['net-worth-breakdown'] })
-      setEditingBalance(null)
-    },
-  })
-
-  const handleUpdateBalance = (account: AccountWithBalance) => {
-    setEditingBalance({ accountId: account.id, currentBalance: account.current_balance })
-    setShowUpdateForm(prev => ({ ...prev, [account.id]: true }))
-  }
-
-  const handleSubmitBalance = (e: React.FormEvent, accountId: string) => {
-    e.preventDefault()
-    if (editingBalance && editingBalance.accountId === accountId) {
-      updateBalanceMutation.mutate({ id: accountId, balance: editingBalance.currentBalance })
-    }
-  }
-
   const groupAccountsByType = (accounts: AccountWithBalance[]) => {
     const assets: AccountWithBalance[] = []
     const liabilities: AccountWithBalance[] = []
 
     accounts.forEach(account => {
-      const isLiability = account.type === 'credit'
+      const isLiability = ['credit_card', 'loan', 'mortgage', 'other'].includes(account.account_type)
       if (isLiability) {
         liabilities.push(account)
       } else {
@@ -61,10 +39,6 @@ export default function NetWorth() {
     })
 
     return { assets, liabilities }
-  }
-
-  const calculateGroupTotal = (accounts: AccountWithBalance[]) => {
-    return accounts.reduce((sum, account) => sum + account.current_balance, 0)
   }
 
   if (breakdownLoading) {
@@ -79,20 +53,35 @@ export default function NetWorth() {
   }
 
   const { assets, liabilities } = groupAccountsByType(breakdown?.accounts || [])
-  const assetsTotal = calculateGroupTotal(assets)
-  const liabilitiesTotal = calculateGroupTotal(liabilities)
-  const netWorth = assetsTotal - liabilitiesTotal
+  const netWorth = breakdown?.net_worth ?? 0
+  const assetsTotal = breakdown?.total_assets ?? 0
+  const liabilitiesTotal = breakdown?.total_liabilities ?? 0
 
-  const formatLastUpdated = (updatedAt?: string) => {
-    if (!updatedAt) return 'Not updated yet'
-    const now = new Date()
-    const updated = new Date(updatedAt)
-    const diffMs = now.getTime() - updated.getTime()
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-    
-    if (diffDays === 0) return 'Updated today'
-    if (diffDays === 1) return 'Updated yesterday'
-    return `Updated ${diffDays} days ago`
+  const AccountRow = ({ account }: { account: AccountWithBalance }) => {
+    const displayBalance = account.calculated_balance ?? account.current_balance
+    return (
+      <Link
+        to={`/accounts/${account.id}`}
+        className="block p-4 hover:bg-gray-50 transition-colors"
+      >
+        <div className="flex justify-between items-center">
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-gray-900">{account.name}</span>
+              <span className="text-xs text-gray-500">
+                {accountTypeLabels[account.account_type] || account.account_type}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-medium text-gray-900">
+              {formatCurrency(displayBalance)}
+            </span>
+            <ChevronRight className="h-4 w-4 text-gray-400" />
+          </div>
+        </div>
+      </Link>
+    )
   }
 
   return (
@@ -104,8 +93,8 @@ export default function NetWorth() {
             Your total financial position across all accounts
           </p>
         </div>
-        <Button onClick={() => refetch()} variant="outline" size="sm" disabled={updateBalanceMutation.isPending}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${updateBalanceMutation.isPending ? 'animate-spin' : ''}`} />
+        <Button onClick={() => refetch()} variant="outline" size="sm">
+          <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
       </div>
@@ -119,23 +108,18 @@ export default function NetWorth() {
               {formatCurrency(assetsTotal)}
             </p>
           </div>
-          
+
           <div className="text-center border-x border-gray-200">
             <p className="text-sm text-gray-500 mb-2">Net Worth</p>
             <p className={`text-4xl font-bold ${netWorth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {formatCurrency(netWorth)}
             </p>
-            {breakdown?.accounts?.[0]?.balance_updated_at && (
-              <p className="text-xs text-gray-400 mt-1">
-                {formatLastUpdated(breakdown.accounts[0].balance_updated_at)}
-              </p>
-            )}
           </div>
-          
+
           <div className="text-center">
             <p className="text-sm text-gray-500 mb-2">Total Liabilities</p>
-            <p className={`text-2xl font-bold ${liabilitiesTotal >= 0 ? 'text-red-600' : 'text-gray-900'}`}>
-              {formatCurrency(Math.abs(liabilitiesTotal))}
+            <p className={`text-2xl font-bold ${liabilitiesTotal > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+              {formatCurrency(liabilitiesTotal)}
             </p>
           </div>
         </div>
@@ -154,7 +138,7 @@ export default function NetWorth() {
             </span>
           </div>
         </div>
-        
+
         <div className="divide-y divide-gray-100">
           {assets.length === 0 ? (
             <div className="p-4 text-center text-sm text-gray-500">
@@ -162,65 +146,7 @@ export default function NetWorth() {
             </div>
           ) : (
             assets.map((account) => (
-              <div key={account.id} className="p-4 hover:bg-gray-50">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900">{account.name}</span>
-                      <span className="text-xs text-gray-500">
-                        {accountTypeLabels[account.type] || account.type}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                      <span>Balance: {formatCurrency(account.current_balance)}</span>
-                      {account.balance_updated_at && (
-                        <span>{formatLastUpdated(account.balance_updated_at)}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {showUpdateForm[account.id] ? (
-                      <form onSubmit={(e) => handleSubmitBalance(e, account.id)} className="flex gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={editingBalance?.currentBalance || account.current_balance}
-                          onChange={(e) => setEditingBalance({
-                            accountId: account.id,
-                            currentBalance: parseFloat(e.target.value)
-                          })}
-                          className="w-32 px-2 py-1 border rounded text-sm"
-                          autoFocus
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          disabled={updateBalanceMutation.isPending}
-                        >
-                          {updateBalanceMutation.isPending ? 'Updating...' : 'Save'}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setShowUpdateForm(prev => ({ ...prev, [account.id]: false }))}
-                        >
-                          Cancel
-                        </Button>
-                      </form>
-                    ) : (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleUpdateBalance(account)}
-                      >
-                        Update Balance
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <AccountRow key={account.id} account={account} />
             ))
           )}
         </div>
@@ -233,11 +159,11 @@ export default function NetWorth() {
             <TrendingDown className="h-5 w-5 text-red-600" />
             <h2 className="text-lg font-semibold">Liabilities</h2>
             <span className="text-sm text-gray-500 ml-2">
-              {formatCurrency(Math.abs(liabilitiesTotal))}
+              {formatCurrency(liabilitiesTotal)}
             </span>
           </div>
         </div>
-        
+
         <div className="divide-y divide-gray-100">
           {liabilities.length === 0 ? (
             <div className="p-4 text-center text-sm text-gray-500">
@@ -245,65 +171,7 @@ export default function NetWorth() {
             </div>
           ) : (
             liabilities.map((account) => (
-              <div key={account.id} className="p-4 hover:bg-gray-50">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900">{account.name}</span>
-                      <span className="text-xs text-gray-500">
-                        {accountTypeLabels[account.type] || account.type}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                      <span className="text-red-600">Balance: {formatCurrency(account.current_balance)}</span>
-                      {account.balance_updated_at && (
-                        <span>{formatLastUpdated(account.balance_updated_at)}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {showUpdateForm[account.id] ? (
-                      <form onSubmit={(e) => handleSubmitBalance(e, account.id)} className="flex gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={editingBalance?.currentBalance || account.current_balance}
-                          onChange={(e) => setEditingBalance({
-                            accountId: account.id,
-                            currentBalance: parseFloat(e.target.value)
-                          })}
-                          className="w-32 px-2 py-1 border rounded text-sm"
-                          autoFocus
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          disabled={updateBalanceMutation.isPending}
-                        >
-                          {updateBalanceMutation.isPending ? 'Updating...' : 'Save'}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setShowUpdateForm(prev => ({ ...prev, [account.id]: false }))}
-                        >
-                          Cancel
-                        </Button>
-                      </form>
-                    ) : (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleUpdateBalance(account)}
-                      >
-                        Update Balance
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <AccountRow key={account.id} account={account} />
             ))
           )}
         </div>

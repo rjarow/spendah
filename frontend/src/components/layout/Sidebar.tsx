@@ -10,6 +10,7 @@ import {
   Target,
   DollarSign,
   MessageCircle,
+  ListChecks,
 } from 'lucide-react'
 
 const navigation = [
@@ -17,6 +18,7 @@ const navigation = [
   { name: 'Transactions', href: '/transactions', icon: Receipt },
   { name: 'Recurring', href: '/recurring', icon: Repeat },
   { name: 'Budgets', href: '/budgets', icon: Target },
+  { name: 'Rules', href: '/rules', icon: ListChecks },
   { name: 'Accounts', href: '/accounts', icon: Wallet },
   { name: 'Net Worth', href: '/net-worth', icon: DollarSign },
   { name: 'Import', href: '/import', icon: Upload },

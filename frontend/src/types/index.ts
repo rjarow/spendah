@@ -480,3 +480,73 @@ export interface QuickQuestion {
   text: string
   category: string
 }
+
+// Rule types
+export type MatchField = 'merchant' | 'description' | 'amount'
+export type MatchType = 'contains' | 'exact' | 'starts_with' | 'regex'
+
+export interface CategorizationRule {
+  id: string
+  name: string
+  match_field: MatchField
+  match_type: MatchType
+  match_value: string
+  category_id: string
+  category_name: string
+  priority: number
+  is_active: boolean
+  auto_created: boolean
+  match_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface RuleCreate {
+  name: string
+  match_field: MatchField
+  match_type: MatchType
+  match_value: string
+  category_id: string
+  priority?: number
+  is_active?: boolean
+}
+
+export interface RuleUpdate {
+  name?: string
+  match_field?: MatchField
+  match_type?: MatchType
+  match_value?: string
+  category_id?: string
+  priority?: number
+  is_active?: boolean
+}
+
+export interface RuleListResponse {
+  items: CategorizationRule[]
+  total: number
+}
+
+export interface RuleTestRequest {
+  text: string
+  amount?: number
+}
+
+export interface RuleTestResponse {
+  matched: boolean
+  rule: CategorizationRule | null
+}
+
+export interface RuleSuggestion {
+  name: string
+  match_field: string
+  match_type: string
+  match_value: string
+  category_id: string
+  category_name: string
+  occurrence_count: number
+}
+
+export interface RuleSuggestionsResponse {
+  suggestions: RuleSuggestion[]
+  total: number
+}

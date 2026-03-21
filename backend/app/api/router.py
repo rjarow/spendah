@@ -16,6 +16,7 @@ from app.api import (
     recurring,
     v1,
     coach,
+    rules,
 )
 
 api_router = APIRouter()
@@ -31,6 +32,7 @@ api_router.include_router(alerts.router)
 api_router.include_router(privacy.router)
 api_router.include_router(recurring.router)
 api_router.include_router(coach.router)
+api_router.include_router(rules.router)
 
 # Include v1 API router
 api_router.include_router(v1.router, tags=["networth"])

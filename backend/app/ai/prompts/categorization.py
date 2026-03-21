@@ -15,7 +15,8 @@ Guidelines:
 - If uncertain, use "Other" category
 - Subscriptions go in "Subscriptions" not to service type (e.g., Netflix = Subscriptions, not Entertainment)
 - Grocery stores = Groceries, not Food
-- Restaurants = Restaurants (under Food), not Groceries"""
+- Restaurants = Restaurants (under Food), not Groceries
+- Use the category hints/descriptions to improve accuracy"""
 
 CATEGORIZATION_USER = """Categorize this transaction:
 

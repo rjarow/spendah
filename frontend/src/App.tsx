@@ -12,6 +12,7 @@ import Insights from './pages/Insights'
 import Settings from './pages/Settings'
 import NetWorth from './pages/NetWorth'
 import Coach from './pages/Coach'
+import Rules from './pages/Rules'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 const queryClient = new QueryClient({
@@ -34,6 +35,7 @@ function App() {
               <Route path="transactions" element={<Transactions />} />
               <Route path="recurring" element={<Recurring />} />
               <Route path="budgets" element={<Budgets />} />
+              <Route path="rules" element={<Rules />} />
               <Route path="accounts" element={<Accounts />} />
               <Route path="accounts/:id" element={<AccountDetail />} />
               <Route path="import" element={<Import />} />

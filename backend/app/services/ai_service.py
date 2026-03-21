@@ -95,6 +95,7 @@ async def categorize_transaction(
                 "id": str(c.id),
                 "name": c.name,
                 "parent_id": str(c.parent_id) if c.parent_id else None,
+                "hint": c.llm_prompt,
             }
             for c in categories
         ],
@@ -174,6 +175,7 @@ async def categorize_transaction_with_context(
                 "id": str(c.id),
                 "name": c.name,
                 "parent_id": str(c.parent_id) if c.parent_id else None,
+                "hint": c.llm_prompt,
             }
             for c in categories
         ],

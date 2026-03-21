@@ -42,6 +42,14 @@ import type {
   BudgetProgress,
   BudgetCreate,
   BudgetUpdate,
+  CategorizationRule,
+  RuleCreate,
+  RuleUpdate,
+  RuleListResponse,
+  RuleTestRequest,
+  RuleTestResponse,
+  RuleSuggestion,
+  RuleSuggestionsResponse,
 } from '@/types'
 
 const API_PORT = import.meta.env.VITE_API_PORT || '8000'
@@ -512,6 +520,59 @@ export type {
   BudgetProgress,
   BudgetCreate,
   BudgetUpdate,
+  CategorizationRule,
+  RuleCreate,
+  RuleUpdate,
+  RuleListResponse,
+  RuleTestRequest,
+  RuleTestResponse,
+  RuleSuggestion,
+  RuleSuggestionsResponse,
+}
+
+// Rules API
+export const getRules = async (isActive?: boolean) => {
+  const params = isActive !== undefined ? { is_active: isActive } : {}
+  const response = await api.get<RuleListResponse>('/rules', { params })
+  return response.data
+}
+
+export const getRule = async (id: string) => {
+  const response = await api.get<CategorizationRule>(`/rules/${id}`)
+  return response.data
+}
+
+export const createRule = async (data: RuleCreate) => {
+  const response = await api.post<CategorizationRule>('/rules', data)
+  return response.data
+}
+
+export const updateRule = async (id: string, data: RuleUpdate) => {
+  const response = await api.patch<CategorizationRule>(`/rules/${id}`, data)
+  return response.data
+}
+
+export const deleteRule = async (id: string) => {
+  await api.delete(`/rules/${id}`)
+}
+
+export const testRule = async (text: string, amount?: number) => {
+  const response = await api.post<RuleTestResponse>('/rules/test', { text, amount })
+  return response.data
+}
+
+export const generateRulesFromCorrections = async (minOccurrences: number = 3) => {
+  const response = await api.post<RuleSuggestionsResponse>('/rules/generate-from-corrections', null, {
+    params: { min_occurrences: minOccurrences }
+  })
+  return response.data
+}
+
+export const createRuleFromSuggestion = async (suggestionIndex: number) => {
+  const response = await api.post<CategorizationRule>('/rules/create-from-suggestion', null, {
+    params: { suggestion_index: suggestionIndex }
+  })
+  return response.data
 }
 
 export default api

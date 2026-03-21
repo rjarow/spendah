@@ -48,6 +48,7 @@ from app.services.ai_service import (
     clean_merchant_name,
     categorize_transaction_with_context,
 )
+from app.services import rules_service
 
 
 def get_or_create_account(
@@ -369,27 +370,84 @@ async def process_import(
                     else:
                         merchant_map[desc] = result
 
+                merchant_category_cache: Dict[str, Optional[str]] = {}
                 categorize_tasks = []
+                merchants_to_categorize = []
+                txns_need_ai = []
                 for txn_data in new_txns:
                     clean_merchant = merchant_map.get(txn_data["raw_description"])
-                    categorize_tasks.append(
-                        categorize_transaction_with_context(
-                            db=db,
-                            clean_merchant=clean_merchant,
-                            raw_description=txn_data["raw_description"],
-                            amount=float(txn_data["amount"]),
-                            date=str(txn_data["date"]),
-                            account_type=txn_data["_account_type"],
-                            categories=categories,
-                            corrections=corrections,
-                        )
+
+                    rule_category_id = rules_service.apply_rules(
+                        db,
+                        merchant=clean_merchant,
+                        description=txn_data["raw_description"],
+                        amount=float(txn_data["amount"]),
                     )
+
+                    if rule_category_id:
+                        txn_data["_rule_category_id"] = rule_category_id
+                        txn_data["_clean_merchant"] = clean_merchant
+                    else:
+                        if clean_merchant and clean_merchant in merchant_category_cache:
+                            cached_cat = merchant_category_cache[clean_merchant]
+                            if cached_cat:
+                                txn_data["_cached_category_id"] = cached_cat
+                                txn_data["_clean_merchant"] = clean_merchant
+                                continue
+                        elif (
+                            clean_merchant and clean_merchant in merchants_to_categorize
+                        ):
+                            txn_data["_pending_ai"] = True
+                            txn_data["_clean_merchant"] = clean_merchant
+                            txns_need_ai.append(txn_data)
+                            continue
+
+                        txns_need_ai.append(txn_data)
+                        if clean_merchant:
+                            merchants_to_categorize.append(clean_merchant)
+                        categorize_tasks.append(
+                            categorize_transaction_with_context(
+                                db=db,
+                                clean_merchant=clean_merchant,
+                                raw_description=txn_data["raw_description"],
+                                amount=float(txn_data["amount"]),
+                                date=str(txn_data["date"]),
+                                account_type=txn_data["_account_type"],
+                                categories=categories,
+                                corrections=corrections,
+                            )
+                        )
 
                 category_results = await asyncio.gather(
                     *categorize_tasks, return_exceptions=True
                 )
 
-                for txn_data, cat_result in zip(new_txns, category_results):
+                ai_category_map = {}
+                for txn_data, cat_result in zip(
+                    [t for t in txns_need_ai if "_pending_ai" not in t],
+                    category_results,
+                ):
+                    if cat_result and not isinstance(cat_result, Exception):
+                        if cat_result.get("confidence", 0) > 0.5:
+                            cat_id = cat_result.get("category_id")
+                            ai_category_map[txn_data["_hash"]] = cat_id
+                            clean_merchant = txn_data.get(
+                                "_clean_merchant"
+                            ) or merchant_map.get(txn_data["raw_description"])
+                            if clean_merchant and cat_id:
+                                merchant_category_cache[clean_merchant] = cat_id
+                    elif isinstance(cat_result, Exception):
+                        logger.warning(f"Categorization failed: {cat_result}")
+
+                for txn_data in txns_need_ai:
+                    if "_pending_ai" in txn_data:
+                        clean_merchant = txn_data.get("_clean_merchant")
+                        if clean_merchant and clean_merchant in merchant_category_cache:
+                            ai_category_map[txn_data["_hash"]] = (
+                                merchant_category_cache[clean_merchant]
+                            )
+
+                for txn_data in new_txns:
                     txn_hash = txn_data["_hash"]
 
                     if txn_hash in existing_hashes:
@@ -401,12 +459,17 @@ async def process_import(
 
                         category_id = None
                         ai_categorized = False
-                        if cat_result and not isinstance(cat_result, Exception):
-                            if cat_result.get("confidence", 0) > 0.5:
-                                category_id = cat_result.get("category_id")
-                                ai_categorized = True
-                        elif isinstance(cat_result, Exception):
-                            logger.warning(f"Categorization failed: {cat_result}")
+                        rule_categorized = False
+
+                        if "_rule_category_id" in txn_data:
+                            category_id = txn_data["_rule_category_id"]
+                            rule_categorized = True
+                        elif "_cached_category_id" in txn_data:
+                            category_id = txn_data["_cached_category_id"]
+                            ai_categorized = True
+                        elif txn_hash in ai_category_map:
+                            category_id = ai_category_map[txn_hash]
+                            ai_categorized = True
 
                         transaction = Transaction(
                             id=str(uuid.uuid4()),

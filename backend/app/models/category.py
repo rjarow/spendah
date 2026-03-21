@@ -4,7 +4,7 @@ Category database model.
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -24,6 +24,7 @@ class Category(Base):
     )
     color = Column(String(7), nullable=True)
     icon = Column(String(50), nullable=True)
+    llm_prompt = Column(Text, nullable=True)
     is_system = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -40,3 +41,6 @@ class Category(Base):
         "UserCorrection", back_populates="category", passive_deletes=True
     )
     budgets = relationship("Budget", back_populates="category", passive_deletes=True)
+    rules = relationship(
+        "CategorizationRule", back_populates="category", passive_deletes=True
+    )

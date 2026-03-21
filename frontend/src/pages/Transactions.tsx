@@ -1,12 +1,18 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getTransactions, getCategories, getAccounts, updateTransaction, bulkCategorize } from '@/lib/api'
+import { getTransactions, getCategories, getAccounts, updateTransaction, bulkCategorize, createRule } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, formatDate } from '@/lib/formatters'
 import type { Transaction, Category, Account } from '@/types'
 
 interface FlatCategory extends Category {
   parent_id?: string | null
+}
+
+interface RuleToast {
+  merchant: string
+  categoryId: string
+  categoryName: string
 }
 
 export default function Transactions() {
@@ -17,6 +23,7 @@ export default function Transactions() {
   const [selectedCategory, setSelectedCategory] = useState<string>('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [ruleToast, setRuleToast] = useState<RuleToast | null>(null)
 
   const { data: transactions, isLoading } = useQuery({
     queryKey: ['transactions', page, search, selectedAccount, selectedCategory],
@@ -44,6 +51,21 @@ export default function Transactions() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       setEditingId(null)
+    },
+  })
+
+  const createRuleMutation = useMutation({
+    mutationFn: (toast: RuleToast) =>
+      createRule({
+        name: `${toast.merchant} → ${toast.categoryName}`,
+        match_field: 'merchant',
+        match_type: 'contains',
+        match_value: toast.merchant,
+        category_id: toast.categoryId,
+      }),
+    onSuccess: () => {
+      setRuleToast(null)
+      queryClient.invalidateQueries({ queryKey: ['rules'] })
     },
   })
 
@@ -162,6 +184,31 @@ export default function Transactions() {
         </div>
       )}
 
+      {ruleToast && (
+        <div className="fixed bottom-4 right-4 bg-white border rounded-lg shadow-lg p-4 max-w-sm z-50">
+          <div className="text-sm font-medium mb-2">Create a rule for this merchant?</div>
+          <div className="text-sm text-gray-600 mb-3">
+            Always categorize <strong>{ruleToast.merchant}</strong> as <strong>{ruleToast.categoryName}</strong>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => createRuleMutation.mutate(ruleToast)}
+              disabled={createRuleMutation.isPending}
+            >
+              Create Rule
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setRuleToast(null)}
+            >
+              No Thanks
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="border rounded overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
@@ -206,9 +253,24 @@ export default function Transactions() {
                       className="border rounded px-2 py-1 text-sm"
                       defaultValue={txn.category_id || ''}
                       onChange={(e) => {
+                        const newCategoryId = e.target.value || null
+                        const merchant = txn.clean_merchant || txn.raw_description
                         updateMutation.mutate({
                           id: txn.id,
-                          data: { category_id: e.target.value || null }
+                          data: { category_id: newCategoryId }
+                        }, {
+                          onSuccess: () => {
+                            if (newCategoryId) {
+                              const categoryName = flatCategories.find(c => c.id === newCategoryId)?.name
+                              if (categoryName) {
+                                setRuleToast({
+                                  merchant,
+                                  categoryId: newCategoryId,
+                                  categoryName,
+                                })
+                              }
+                            }
+                          }
                         })
                       }}
                       onBlur={() => setEditingId(null)}

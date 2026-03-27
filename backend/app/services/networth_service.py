@@ -81,7 +81,9 @@ def get_networth_breakdown(db: Session) -> Dict[str, Any]:
             "calculated_balance": calc_bal,
             "is_stale": is_stale,
             "is_asset": account.is_asset,
-            "balance_updated_at": account.balance_updated_at.isoformat() if account.balance_updated_at else None,
+            "balance_updated_at": account.balance_updated_at.isoformat()
+            if account.balance_updated_at
+            else None,
         }
 
         if account.is_asset:
@@ -215,38 +217,6 @@ def get_networth_history(
         )
 
     return history
-
-
-def _get_account_balance_at_date(
-    db: Session, account_id: str, record_date: date, asset: bool
-) -> Decimal:
-    """
-    Get balance for an account at a specific date.
-
-    Args:
-        db: Database session
-        account_id: Account ID
-        record_date: Date to get balance for
-        asset: True if asset account, False if liability
-
-    Returns:
-        Balance as Decimal
-    """
-    balance_result = (
-        db.query(BalanceHistory.balance)
-        .filter(
-            BalanceHistory.account_id == account_id,
-            BalanceHistory.recorded_at == record_date,
-        )
-        .first()
-    )
-
-    balance_value = (
-        balance_result[0]
-        if balance_result and balance_result[0] is not None
-        else Decimal("0.00")
-    )
-    return Decimal(str(balance_value))
 
 
 def auto_snapshot_all_balances(db: Session) -> Dict[str, int]:

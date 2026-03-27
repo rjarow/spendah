@@ -71,7 +71,10 @@ class CoachService:
 
         sanitized_message = sanitize_for_prompt(message, max_length=2000)
         sanitized_history = [
-            {"role": h["role"], "content": sanitize_for_prompt(h["content"], max_length=2000)}
+            {
+                "role": h["role"],
+                "content": sanitize_for_prompt(h["content"], max_length=2000),
+            }
             for h in history
         ]
         full_prompt = build_coach_prompt(sanitized_message, context, sanitized_history)
@@ -177,16 +180,17 @@ class CoachService:
             self.db.query(RecurringGroup).filter(RecurringGroup.is_active == True).all()
         )
 
+        categories = {
+            c.id: c.name for c in self.db.query(Category.id, Category.name).all()
+        }
+
         result = []
         for r in recurring:
             token = self.tokenizer.tokenize_merchant(r.name)
-            category = (
-                self.db.query(Category).filter(Category.id == r.category_id).first()
-            )
 
             result.append(
                 {
-                    "name": f"{token} [{category.name if category else 'Unknown'}]",
+                    "name": f"{token} [{categories.get(r.category_id, 'Unknown')}]",
                     "amount": float(r.expected_amount) if r.expected_amount else 0,
                     "frequency": r.frequency.value if r.frequency else "monthly",
                 }
@@ -254,18 +258,19 @@ class CoachService:
             .all()
         )
 
+        categories = {
+            c.id: c.name for c in self.db.query(Category.id, Category.name).all()
+        }
+
         result = []
         for t in transactions:
             merchant = t.clean_merchant or t.raw_description
             token = self.tokenizer.tokenize_merchant(merchant)
-            category = (
-                self.db.query(Category).filter(Category.id == t.category_id).first()
-            )
 
             result.append(
                 {
                     "date": t.date.isoformat(),
-                    "merchant": f"{token} [{category.name if category else 'Unknown'}]",
+                    "merchant": f"{token} [{categories.get(t.category_id, 'Unknown')}]",
                     "amount": float(t.amount),
                 }
             )

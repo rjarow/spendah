@@ -98,6 +98,31 @@ def get_category_average(db: Session, category_id: str, months: int = 3) -> floa
     return float(result) if result else 0.0
 
 
+def get_category_averages_batch(
+    db: Session, category_ids: List[str], months: int = 3
+) -> Dict[str, float]:
+    """Get average spending for multiple categories in one query."""
+    if not category_ids:
+        return {}
+    cutoff = datetime.now() - timedelta(days=months * 30)
+
+    results = (
+        db.query(
+            Transaction.category_id,
+            func.avg(func.abs(Transaction.amount)).label("avg_amount"),
+        )
+        .filter(
+            Transaction.category_id.in_(category_ids),
+            Transaction.amount < 0,
+            Transaction.date >= cutoff.date(),
+        )
+        .group_by(Transaction.category_id)
+        .all()
+    )
+
+    return {row.category_id: float(row.avg_amount) for row in results}
+
+
 def is_first_time_merchant(
     db: Session, merchant: str, exclude_txn_id: str = None
 ) -> bool:
@@ -109,9 +134,19 @@ def is_first_time_merchant(
     return query.count() == 0
 
 
+def get_known_merchants_batch(db: Session) -> set:
+    """Get all known merchants as a set for batch checking."""
+    results = (
+        db.query(Transaction.clean_merchant)
+        .filter(Transaction.clean_merchant.isnot(None))
+        .distinct()
+        .all()
+    )
+    return {r[0] for r in results if r[0]}
+
+
 def get_recurring_for_merchant(db: Session, merchant: str) -> Optional[RecurringGroup]:
     """Find recurring group matching this merchant."""
-    # Simple pattern match - could be improved with fuzzy matching
     return (
         db.query(RecurringGroup)
         .filter(
@@ -120,6 +155,25 @@ def get_recurring_for_merchant(db: Session, merchant: str) -> Optional[Recurring
         )
         .first()
     )
+
+
+def get_recurring_groups_by_merchant_batch(
+    db: Session,
+) -> Dict[str, RecurringGroup]:
+    """Get all active recurring groups indexed by merchant pattern."""
+    recurring = db.query(RecurringGroup).filter(RecurringGroup.is_active == True).all()
+    result = {}
+    for r in recurring:
+        pattern = r.merchant_pattern.lower()
+        if pattern not in result:
+            result[pattern] = r
+    return result
+
+
+def get_category_names_batch(db: Session) -> Dict[str, str]:
+    """Get all category names indexed by ID."""
+    results = db.query(Category.id, Category.name).all()
+    return {row.id: row.name for row in results}
 
 
 def check_price_increase(
@@ -255,6 +309,122 @@ def analyze_transaction_for_alerts_with_settings(
         return alert
 
     return None
+
+
+def analyze_transactions_for_alerts_batch(
+    db: Session,
+    transactions: List[Transaction],
+    settings: AlertSettings,
+    category_averages: Dict[str, float],
+    known_merchants: set,
+    recurring_by_merchant: Dict[str, RecurringGroup],
+    category_names: Dict[str, str],
+) -> List[Alert]:
+    """
+    Batch analyze transactions for alerts using pre-computed lookup dicts.
+    Avoids N queries per transaction during bulk import.
+    """
+    if not settings.alerts_enabled:
+        return []
+
+    alerts = []
+    new_merchants = set()
+
+    for transaction in transactions:
+        amount = abs(float(transaction.amount))
+        merchant = transaction.clean_merchant or transaction.raw_description
+
+        is_income = float(transaction.amount) > 0
+        if is_income:
+            continue
+
+        if not is_likely_merchant(merchant):
+            continue
+
+        category_avg = (
+            category_averages.get(transaction.category_id, 0)
+            if transaction.category_id
+            else 0
+        )
+        is_new_merchant = merchant not in known_merchants
+        if is_new_merchant:
+            new_merchants.add(merchant)
+
+        recurring = None
+        for pattern, rg in recurring_by_merchant.items():
+            if pattern in merchant.lower():
+                recurring = rg
+                break
+
+        price_increase = None
+        if recurring:
+            price_increase = check_price_increase(db, merchant, amount, recurring)
+
+        if price_increase:
+            alert = Alert(
+                id=str(uuid.uuid4()),
+                type=AlertType.price_increase,
+                severity=Severity.warning,
+                title=f"Price increase: {merchant}",
+                description=f"Was ${price_increase['previous_amount']:.2f}/mo -> Now ${price_increase['new_amount']:.2f}/mo (+${price_increase['increase']:.2f})",
+                transaction_id=str(transaction.id),
+                recurring_group_id=str(recurring.id) if recurring else None,
+                alert_metadata={
+                    "previous_amount": price_increase["previous_amount"],
+                    "new_amount": price_increase["new_amount"],
+                    "increase": price_increase["increase"],
+                    "percent_increase": price_increase["percent_increase"],
+                },
+            )
+            alerts.append(alert)
+            continue
+
+        multiplier = float(settings.large_purchase_multiplier)
+        if category_avg > 0 and amount > category_avg * multiplier:
+            actual_multiplier = amount / category_avg
+            severity = Severity.attention if actual_multiplier > 5 else Severity.warning
+            category_name = category_names.get(transaction.category_id, "this category")
+
+            alert = Alert(
+                id=str(uuid.uuid4()),
+                type=AlertType.large_purchase,
+                severity=severity,
+                title=f"Large purchase: {merchant}",
+                description=f"${amount:.2f} is {actual_multiplier:.1f}x your usual {category_name} spending of ${category_avg:.2f}",
+                transaction_id=str(transaction.id),
+                alert_metadata={
+                    "amount": amount,
+                    "category_avg": category_avg,
+                    "multiplier": actual_multiplier,
+                },
+            )
+            alerts.append(alert)
+            continue
+
+        unusual_threshold = float(settings.unusual_merchant_threshold)
+        if is_new_merchant and amount > unusual_threshold:
+            alert = Alert(
+                id=str(uuid.uuid4()),
+                type=AlertType.unusual_merchant,
+                severity=Severity.info,
+                title=f"New merchant: {merchant}",
+                description=f"First purchase at {merchant}: ${amount:.2f}",
+                transaction_id=str(transaction.id),
+                alert_metadata={
+                    "amount": amount,
+                    "threshold": unusual_threshold,
+                    "is_first_time": True,
+                },
+            )
+            alerts.append(alert)
+
+    for alert in alerts:
+        db.add(alert)
+
+    if alerts:
+        db.commit()
+
+    return alerts
 
 
 def get_alerts(

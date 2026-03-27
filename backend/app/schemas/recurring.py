@@ -1,11 +1,13 @@
 """Pydantic schemas for recurring groups."""
 
+from enum import Enum
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 
-class Frequency(str):
+
+class Frequency(str, Enum):
     weekly = "weekly"
     biweekly = "biweekly"
     monthly = "monthly"
@@ -50,13 +52,9 @@ class RecurringGroupResponse(RecurringGroupBase):
         from_attributes = True
 
 
-class RecurringGroupWithTransactions(RecurringGroupResponse):
-    """Extended response with recent transaction IDs."""
-    recent_transaction_ids: List[str] = []
-
-
 class MarkRecurringRequest(BaseModel):
     """Request to mark a transaction as recurring."""
+
     recurring_group_id: Optional[str] = None  # Link to existing group
     create_new: bool = False  # Or create a new group
     # If create_new is True:
@@ -66,6 +64,7 @@ class MarkRecurringRequest(BaseModel):
 
 class DetectionResult(BaseModel):
     """Result of recurring detection for a single pattern."""
+
     merchant_pattern: str
     suggested_name: str
     transaction_ids: List[str]
@@ -76,5 +75,6 @@ class DetectionResult(BaseModel):
 
 class DetectionResponse(BaseModel):
     """Response from recurring detection."""
+
     detected: List[DetectionResult]
     total_found: int

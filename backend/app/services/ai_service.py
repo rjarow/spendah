@@ -75,78 +75,6 @@ async def clean_merchant_name(db: Session, raw_description: str) -> Optional[str
         return None
 
 
-async def categorize_transaction(
-    db: Session,
-    clean_merchant: Optional[str],
-    raw_description: str,
-    amount: float,
-    date: str,
-    account_type: str = "bank",
-) -> Optional[Dict[str, Any]]:
-    if not settings.ai_auto_categorize:
-        return None
-
-    client = get_ai_client_with_db(db, task="categorize")
-
-    categories = db.query(Category).all()
-    categories_json = json.dumps(
-        [
-            {
-                "id": str(c.id),
-                "name": c.name,
-                "parent_id": str(c.parent_id) if c.parent_id else None,
-                "hint": c.llm_prompt,
-            }
-            for c in categories
-        ],
-        indent=2,
-    )
-
-    corrections = (
-        db.query(UserCorrection)
-        .order_by(UserCorrection.created_at.desc())
-        .limit(20)
-        .all()
-    )
-
-    if corrections:
-        corrections_text = "\n".join(
-            [
-                f'- "{c.raw_description}" -> Category: {c.category_id}'
-                for c in corrections
-            ]
-        )
-    else:
-        corrections_text = "No previous corrections yet."
-
-    system_prompt = CATEGORIZATION_SYSTEM.format(
-        categories_json=categories_json, user_corrections=corrections_text
-    )
-
-    safe_merchant = sanitize_merchant_name(clean_merchant or raw_description)
-    safe_description = sanitize_description(raw_description)
-
-    user_prompt = CATEGORIZATION_USER.format(
-        clean_merchant=safe_merchant,
-        raw_description=safe_description,
-        amount=abs(amount),
-        date=date,
-        account_type=account_type,
-    )
-
-    try:
-        result = await client.complete_json(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            temperature=0.1,
-            max_tokens=200,
-        )
-        return result
-    except Exception as e:
-        logger.warning(f"Categorization failed: {e}")
-        return None
-
-
 async def categorize_transaction_with_context(
     db: Session,
     clean_merchant: Optional[str],
@@ -226,30 +154,3 @@ async def categorize_transaction_with_context(
     except Exception as e:
         logger.warning(f"Categorization failed: {e}")
         return None
-
-
-async def batch_clean_merchants(
-    db: Session, descriptions: List[str]
-) -> List[Optional[str]]:
-    results = []
-    for desc in descriptions:
-        cleaned = await clean_merchant_name(db, desc)
-        results.append(cleaned)
-    return results
-
-
-async def batch_categorize(
-    db: Session, transactions: List[Dict[str, Any]]
-) -> List[Optional[Dict[str, Any]]]:
-    results = []
-    for txn in transactions:
-        result = await categorize_transaction(
-            db=db,
-            clean_merchant=txn.get("clean_merchant"),
-            raw_description=txn.get("raw_description", ""),
-            amount=float(txn.get("amount", 0)),
-            date=str(txn.get("date", "")),
-            account_type=txn.get("account_type", "bank"),
-        )
-        results.append(result)
-    return results

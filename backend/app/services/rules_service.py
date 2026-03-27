@@ -103,7 +103,6 @@ def apply_rules(
     for rule in rules:
         if match_rule(rule, merchant, description, amount):
             rule.match_count += 1
-            db.commit()
             logger.debug(f"Rule '{rule.name}' matched for: {merchant or description}")
             return rule.category_id
 

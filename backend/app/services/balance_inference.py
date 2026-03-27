@@ -4,14 +4,16 @@ Balance inference service for calculating account balances from transactions.
 
 from decimal import Decimal
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import date
 
-from app.models.account import Account, AccountType
+from app.models.account import Account
 from app.models.transaction import Transaction
 
 
 class BalanceInferenceError(Exception):
     """Base exception for balance inference errors."""
+
     pass
 
 
@@ -42,33 +44,34 @@ def calculate_balance_from_transactions(db: Session, account_id: str) -> Decimal
         raise BalanceInferenceError(f"Account {account_id} not found")
 
     if not account.is_asset:
-        # For liabilities (credit accounts), sum of transactions = amount owed
-        # Transactions are stored as negative for expenses, positive for income
-        total_transactions = db.query(Transaction.amount).filter(
-            Transaction.account_id == account_id
-        ).all()
+        total_transactions_sum = (
+            db.query(func.sum(Transaction.amount))
+            .filter(Transaction.account_id == account_id)
+            .scalar()
+            or 0
+        )
+        calculated_balance = Decimal(str(total_transactions_sum))
+        if (
+            calculated_balance != 0
+            or db.query(Transaction.id)
+            .filter(Transaction.account_id == account_id)
+            .first()
+            is not None
+        ):
+            return calculated_balance
 
-        calculated_balance = Decimal("0.00")
-        for (amount,) in total_transactions:
-            calculated_balance += Decimal(str(amount))
-
-        return calculated_balance
+        if account.current_balance is not None:
+            return account.current_balance
+        return Decimal("0.00")
     else:
-        # For assets (bank, debit, cash):
-        # Calculate what the balance SHOULD be based on transactions
-        # This requires knowing if we have a starting balance
+        total_transactions_sum = (
+            db.query(func.sum(Transaction.amount))
+            .filter(Transaction.account_id == account_id)
+            .scalar()
+            or 0
+        )
+        total_transactions_sum = Decimal(str(total_transactions_sum))
 
-        total_transactions = db.query(Transaction.amount).filter(
-            Transaction.account_id == account_id
-        ).all()
-
-        # Sum all transactions (expenses are negative, income is positive)
-        total_transactions_sum = Decimal("0.00")
-        for (amount,) in total_transactions:
-            total_transactions_sum += Decimal(str(amount))
-
-        # If we have a current_balance, that's our reference point
-        # If not, we assume 0 and use transaction sums directly
         if account.current_balance is not None:
             calculated_balance = account.current_balance + total_transactions_sum
         else:
@@ -92,7 +95,9 @@ def calculate_all_account_balances(db: Session) -> dict:
     balances = {}
     for account in accounts:
         try:
-            balances[str(account.id)] = calculate_balance_from_transactions(db, str(account.id))
+            balances[str(account.id)] = calculate_balance_from_transactions(
+                db, str(account.id)
+            )
         except BalanceInferenceError:
             balances[str(account.id)] = None
 
@@ -112,7 +117,11 @@ def get_calculated_balance(db: Session, account: "Account") -> tuple:
     """
     try:
         calculated = calculate_balance_from_transactions(db, str(account.id))
-        manual = account.current_balance if account.current_balance is not None else Decimal("0.00")
+        manual = (
+            account.current_balance
+            if account.current_balance is not None
+            else Decimal("0.00")
+        )
         is_stale = calculated != manual
         return (float(calculated), is_stale)
     except BalanceInferenceError:
@@ -142,7 +151,11 @@ def get_balance_difference(db: Session, account_id: str) -> dict:
     if not account:
         raise BalanceInferenceError(f"Account {account_id} not found")
 
-    manual_balance = account.current_balance if account.current_balance is not None else Decimal("0.00")
+    manual_balance = (
+        account.current_balance
+        if account.current_balance is not None
+        else Decimal("0.00")
+    )
     calculated_balance = calculate_balance_from_transactions(db, account_id)
     difference = calculated_balance - manual_balance
 
@@ -155,7 +168,7 @@ def get_balance_difference(db: Session, account_id: str) -> dict:
         "manual_balance": float(manual_balance) if manual_balance is not None else 0.0,
         "calculated_balance": float(calculated_balance),
         "difference": float(difference),
-        "is_stale": is_stale
+        "is_stale": is_stale,
     }
 
 
@@ -200,9 +213,6 @@ def infer_balance_from_transactions(db: Session, account_id: str) -> Decimal:
         BalanceInferenceError: If account not found
     """
     calculated_balance = calculate_balance_from_transactions(db, account_id)
-
-    from app.models.account import Account
-    from sqlalchemy import func
 
     account = db.query(Account).filter(Account.id == account_id).first()
 

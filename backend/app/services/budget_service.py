@@ -72,17 +72,23 @@ def get_budget_progress(
 
     if budget.period == BudgetPeriod.weekly:
         # Find which weekly period as_of_date falls into, aligned to budget start
-        budget_start = budget.start_date if isinstance(budget.start_date, datetime) else datetime.combine(budget.start_date, datetime.min.time())
+        budget_start = (
+            budget.start_date
+            if isinstance(budget.start_date, datetime)
+            else datetime.combine(budget.start_date, datetime.min.time())
+        )
         days_since_start = (as_of_date - budget_start).days
         period_offset = (days_since_start // 7) * 7
         current_period_start = budget_start + timedelta(days=period_offset)
-        period_start, period_end = calculate_period_dates(budget.period, current_period_start)
+        period_start, period_end = calculate_period_dates(
+            budget.period, current_period_start
+        )
     else:
         period_start, period_end = calculate_period_dates(budget.period, as_of_date)
 
     if budget.category_id:
-        transactions = (
-            db.query(Transaction)
+        spent_result = (
+            db.query(func.sum(func.abs(Transaction.amount)))
             .filter(
                 and_(
                     Transaction.date >= period_start.date(),
@@ -90,24 +96,28 @@ def get_budget_progress(
                     Transaction.category_id == budget.category_id,
                 )
             )
-            .all()
+            .scalar()
         )
+        spent = Decimal(str(spent_result)) if spent_result else Decimal("0.00")
     else:
-        transactions = (
-            db.query(Transaction)
+        spent_result = (
+            db.query(func.sum(func.abs(Transaction.amount)))
             .filter(
                 and_(
                     Transaction.date >= period_start.date(),
                     Transaction.date <= period_end.date(),
                 )
             )
-            .all()
+            .scalar()
+        )
+        spent = (
+            Decimal(str(spent_result)).quantize(Decimal("0.01"))
+            if spent_result
+            else Decimal("0.00")
         )
 
-    spent = sum(abs(txn.amount) for txn in transactions)
-
     remaining = budget.amount - spent
-    percent_used = (spent / budget.amount) * 100 if budget.amount > 0 else 0
+    percent_used = float((spent / budget.amount) * 100) if budget.amount > 0 else 0
     is_over_budget = spent > budget.amount
 
     category_name = None

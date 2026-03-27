@@ -70,14 +70,6 @@ class ConversationList(BaseModel):
         from_attributes = True
 
 
-class ContextData(BaseModel):
-    recent_spending: dict
-    recurring_charges: List[dict]
-    alerts_summary: dict
-    account_balances: List[dict]
-    month_comparison: dict
-
-
 class QuickQuestion(BaseModel):
     id: str
     text: str

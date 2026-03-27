@@ -49,6 +49,15 @@ from app.services.ai_service import (
     categorize_transaction_with_context,
 )
 from app.services import rules_service
+from app.services.alerts_service import (
+    analyze_transaction_for_alerts_with_settings,
+    analyze_transactions_for_alerts_batch,
+    get_category_averages_batch,
+    get_known_merchants_batch,
+    get_recurring_groups_by_merchant_batch,
+    get_category_names_batch,
+)
+from app.services.budget_alerts import check_all_budget_alerts
 
 
 def get_or_create_account(
@@ -75,9 +84,6 @@ def get_or_create_account(
     logger.info(f"Created new account: {account_name} (type: {account_type})")
     return account
 
-
-from app.services.alerts_service import analyze_transaction_for_alerts_with_settings
-from app.services.budget_alerts import check_all_budget_alerts
 
 logger = logging.getLogger(__name__)
 
@@ -385,6 +391,20 @@ async def process_import(
 
         alert_settings = db.query(AlertSettings).first()
 
+        category_averages = get_category_averages_batch(
+            db,
+            list(
+                set(
+                    t.category_id
+                    for t in db.query(Transaction.category_id).distinct().all()
+                    if t.category_id
+                )
+            ),
+        )
+        known_merchants = get_known_merchants_batch(db)
+        recurring_by_merchant = get_recurring_groups_by_merchant_batch(db)
+        category_names = get_category_names_batch(db)
+
         imported = 0
         skipped = 0
         errors = []
@@ -562,15 +582,18 @@ async def process_import(
 
         db.commit()
 
-        for transaction in transactions_to_alert:
-            try:
-                analyze_transaction_for_alerts_with_settings(
-                    db, transaction, alert_settings
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Alert analysis failed for transaction {transaction.id}: {e}"
-                )
+        try:
+            analyze_transactions_for_alerts_batch(
+                db,
+                transactions_to_alert,
+                alert_settings,
+                category_averages,
+                known_merchants,
+                recurring_by_merchant,
+                category_names,
+            )
+        except Exception as e:
+            logger.warning(f"Batch alert analysis failed: {e}")
 
         db.commit()
 
@@ -686,13 +709,6 @@ async def process_import(
         raise
 
 
-def process_import_sync(
-    db: Session, import_id: str, request: ImportConfirmRequest
-) -> ImportStatusResponse:
-    """Synchronous wrapper for process_import without AI."""
-    return asyncio.run(process_import(db, import_id, request, use_ai=False))
-
-
 async def process_import_with_ai(
     db: Session, import_id: str, request: ImportConfirmRequest
 ) -> ImportStatusResponse:
@@ -716,109 +732,32 @@ def get_import_status(db: Session, import_id: str) -> ImportStatusResponse:
     )
 
 
-async def categorize_new_merchants_bulk(
-    merchants: List[str], db: Session
-) -> Dict[str, Dict[str, str]]:
-    """
-    Categorize only NEW merchants in a single AI call.
-
-    Privacy note: Sending merchant names alone (without amounts/dates/patterns)
-    is NOT a privacy concern - it reveals nothing about spending behavior.
-
-    Returns: {merchant: {"clean": "...", "category": "...", "subcategory": "..."}}
-    """
-    from app.services.tokenization_service import TokenizationService
-    from app.models.token_map import TokenMap, TokenType
-    from app.ai.client import get_ai_client
-
-    token_service = TokenizationService(db)
-
-    unknown_merchants = token_service.get_unknown_merchants(merchants)
-
-    if not unknown_merchants:
-        return _get_cached_categorizations(merchants, db)
-
-    client = get_ai_client()
-
-    categories = db.query(Category).all()
-    categories_json = json.dumps(
-        [
-            {
-                "id": str(c.id),
-                "name": c.name,
-                "parent_id": str(c.parent_id) if c.parent_id else None,
-            }
-            for c in categories
-        ],
-        indent=2,
-    )
-
-    prompt = f"""Categorize these merchant names from bank transactions.
-
-For each merchant, provide:
-1. A clean, human-readable name
-2. The category and subcategory
-
-Merchants to categorize:
-{json.dumps(unknown_merchants, indent=2)}
-
-Available categories:
-{categories_json}
-
-Respond with JSON array:
-[
-  {{"raw": "WHOLEFDS #1234 SAN FRAN", "clean": "Whole Foods", "category": "Food", "subcategory": "Groceries"}},
-  ...
-]"""
-
-    try:
-        result = await client.complete_json(
-            system_prompt="You are a financial data expert. Categorize merchant names.",
-            user_prompt=prompt,
-            temperature=0.1,
-            max_tokens=2000,
-        )
-        categorizations = (
-            result if isinstance(result, list) else result.get("merchants", [])
-        )
-
-        token_map_result = {}
-        for cat in categorizations:
-            raw = cat.get("raw")
-            token_service.tokenize_merchant(
-                raw, category=cat.get("category"), subcategory=cat.get("subcategory")
-            )
-            token_map_result[raw] = cat
-
-        cached = _get_cached_categorizations(
-            [m for m in merchants if m not in unknown_merchants], db
-        )
-        token_map_result.update(cached)
-
-        return token_map_result
-    except Exception as e:
-        logger.warning(f"Bulk merchant categorization failed: {e}")
-        return _get_cached_categorizations(merchants, db)
-
-
 def _get_cached_categorizations(
     merchants: List[str], db: Session
 ) -> Dict[str, Dict[str, str]]:
     """Get categorizations from token map for known merchants."""
     from app.models.token_map import TokenMap, TokenType
 
+    if not merchants:
+        return {}
+
+    normalized_merchants = [m.strip().upper() for m in merchants]
+
+    cached = (
+        db.query(TokenMap)
+        .filter(
+            TokenMap.token_type == TokenType.merchant,
+            TokenMap.normalized_value.in_(normalized_merchants),
+        )
+        .all()
+    )
+
+    cached_by_normalized = {tm.normalized_value: tm for tm in cached}
+
     result = {}
     for merchant in merchants:
         normalized = merchant.strip().upper()
-        token_map = (
-            db.query(TokenMap)
-            .filter(
-                TokenMap.token_type == TokenType.merchant,
-                TokenMap.normalized_value == normalized,
-            )
-            .first()
-        )
-
+        token_map = cached_by_normalized.get(normalized)
         if token_map and token_map.metadata_:
             result[merchant] = {
                 "raw": merchant,

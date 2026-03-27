@@ -5,10 +5,14 @@ Import API endpoints.
 import hashlib
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query, Request
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.dependencies import get_db
+
+limiter = Limiter(key_func=get_remote_address)
 from app.schemas.import_file import (
     ImportUploadResponse,
     ImportConfirmRequest,
@@ -31,7 +35,10 @@ MAX_ROWS = 100000  # Maximum rows per import
 
 
 @router.post("/upload", response_model=ImportUploadResponse)
-async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def upload_file(
+    request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)
+):
     """Upload a file for import with AI format detection"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
@@ -45,13 +52,17 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
         )
 
     try:
-        content = await file.read()
-
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024 * 1024)}MB",
-            )
+        chunks = []
+        total_size = 0
+        while chunk := await file.read(8192):
+            total_size += len(chunk)
+            if total_size > MAX_FILE_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit",
+                )
+            chunks.append(chunk)
+        content = b"".join(chunks)
 
         file_path, import_id = import_service.save_upload(content, file.filename)
         return await import_service.get_preview_with_ai(
@@ -67,12 +78,18 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
 
 
 @router.post("/{import_id}/confirm", response_model=ImportStatusResponse)
+@limiter.limit("5/minute")
 async def confirm_import(
-    import_id: str, request: ImportConfirmRequest, db: Session = Depends(get_db)
+    request: Request,
+    import_id: str,
+    confirm_request: ImportConfirmRequest,
+    db: Session = Depends(get_db),
 ):
     """Confirm and process import with AI categorization"""
     try:
-        return await import_service.process_import_with_ai(db, import_id, request)
+        return await import_service.process_import_with_ai(
+            db, import_id, confirm_request
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

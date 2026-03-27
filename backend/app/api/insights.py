@@ -34,9 +34,12 @@ def get_spending_by_category(
 ):
     """Get per-category monthly spending totals for the last N months."""
     today = date.today()
-    start_date = date(today.year, today.month - months + 1, 1)
-    if start_date.month <= 0:
-        start_date = date(today.year - 1, start_date.month + 12, 1)
+    m = today.month - months + 1
+    y = today.year
+    while m <= 0:
+        m += 12
+        y -= 1
+    start_date = date(y, m, 1)
 
     results = (
         db.query(
@@ -119,13 +122,19 @@ def get_merchant_ranking(
 ):
     """Get top merchants by total spending."""
     today = date.today()
-    start_date = date(today.year, today.month - months + 1, 1)
-    if start_date.month <= 0:
-        start_date = date(today.year - 1, start_date.month + 12, 1)
+    m = today.month - months + 1
+    y = today.year
+    while m <= 0:
+        m += 12
+        y -= 1
+    start_date = date(y, m, 1)
 
-    prev_start = date(start_date.year, start_date.month - months, 1)
-    if prev_start.month <= 0:
-        prev_start = date(prev_start.year - 1, prev_start.month + 12, 1)
+    prev_m = start_date.month - months
+    prev_y = start_date.year
+    while prev_m <= 0:
+        prev_m += 12
+        prev_y -= 1
+    prev_start = date(prev_y, prev_m, 1)
 
     results = (
         db.query(
@@ -206,9 +215,12 @@ def get_monthly_summary(
 ):
     """Get monthly income/expense summary for the last N months."""
     today = date.today()
-    start_date = date(today.year, today.month - months + 1, 1)
-    if start_date.month <= 0:
-        start_date = date(today.year - 1, start_date.month + 12, 1)
+    m = today.month - months + 1
+    y = today.year
+    while m <= 0:
+        m += 12
+        y -= 1
+    start_date = date(y, m, 1)
 
     results = (
         db.query(
@@ -273,9 +285,12 @@ def get_anomalies(
 ):
     """Detect spending anomalies - unusual transactions and category spikes."""
     today = date.today()
-    start_date = date(today.year, today.month - months + 1, 1)
-    if start_date.month <= 0:
-        start_date = date(today.year - 1, start_date.month + 12, 1)
+    m = today.month - months + 1
+    y = today.year
+    while m <= 0:
+        m += 12
+        y -= 1
+    start_date = date(y, m, 1)
 
     anomalies = []
 

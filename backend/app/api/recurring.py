@@ -1,10 +1,14 @@
 """API endpoints for recurring transaction management."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from typing import List, Optional
 
 from app.dependencies import get_db
+
+limiter = Limiter(key_func=get_remote_address)
 from app.models.recurring import RecurringGroup
 from app.schemas.recurring import (
     RecurringGroupResponse,
@@ -21,8 +25,7 @@ router = APIRouter(prefix="/recurring", tags=["recurring"])
 
 @router.get("", response_model=List[RecurringGroupResponse])
 def get_recurring_groups(
-    include_inactive: bool = Query(False),
-    db: Session = Depends(get_db)
+    include_inactive: bool = Query(False), db: Session = Depends(get_db)
 ):
     """Get all recurring groups."""
     groups = recurring_service.get_recurring_groups(db, include_inactive)
@@ -31,32 +34,30 @@ def get_recurring_groups(
     result = []
     for group in groups:
         response = RecurringGroupResponse.model_validate(group)
-        response.transaction_count = recurring_service.get_group_transaction_count(db, group.id)
+        response.transaction_count = recurring_service.get_group_transaction_count(
+            db, group.id
+        )
         result.append(response)
 
     return result
 
 
 @router.get("/{group_id}", response_model=RecurringGroupResponse)
-def get_recurring_group(
-    group_id: str,
-    db: Session = Depends(get_db)
-):
+def get_recurring_group(group_id: str, db: Session = Depends(get_db)):
     """Get a single recurring group."""
     group = db.query(RecurringGroup).filter(RecurringGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Recurring group not found")
 
     response = RecurringGroupResponse.model_validate(group)
-    response.transaction_count = recurring_service.get_group_transaction_count(db, group.id)
+    response.transaction_count = recurring_service.get_group_transaction_count(
+        db, group.id
+    )
     return response
 
 
 @router.post("", response_model=RecurringGroupResponse)
-def create_recurring_group(
-    data: RecurringGroupCreate,
-    db: Session = Depends(get_db)
-):
+def create_recurring_group(data: RecurringGroupCreate, db: Session = Depends(get_db)):
     """Manually create a recurring group."""
     import uuid
 
@@ -81,9 +82,7 @@ def create_recurring_group(
 
 @router.patch("/{group_id}", response_model=RecurringGroupResponse)
 def update_recurring_group(
-    group_id: str,
-    update: RecurringGroupUpdate,
-    db: Session = Depends(get_db)
+    group_id: str, update: RecurringGroupUpdate, db: Session = Depends(get_db)
 ):
     """Update a recurring group."""
     group = db.query(RecurringGroup).filter(RecurringGroup.id == group_id).first()
@@ -98,15 +97,14 @@ def update_recurring_group(
     db.refresh(group)
 
     response = RecurringGroupResponse.model_validate(group)
-    response.transaction_count = recurring_service.get_group_transaction_count(db, group.id)
+    response.transaction_count = recurring_service.get_group_transaction_count(
+        db, group.id
+    )
     return response
 
 
 @router.delete("/{group_id}")
-def delete_recurring_group(
-    group_id: str,
-    db: Session = Depends(get_db)
-):
+def delete_recurring_group(group_id: str, db: Session = Depends(get_db)):
     """Delete a recurring group (unlinks transactions but doesn't delete them)."""
     group = db.query(RecurringGroup).filter(RecurringGroup.id == group_id).first()
     if not group:
@@ -114,11 +112,10 @@ def delete_recurring_group(
 
     # Unlink all transactions
     from app.models.transaction import Transaction
-    db.query(Transaction).filter(
-        Transaction.recurring_group_id == group_id
-    ).update(
+
+    db.query(Transaction).filter(Transaction.recurring_group_id == group_id).update(
         {Transaction.recurring_group_id: None, Transaction.is_recurring: False},
-        synchronize_session=False
+        synchronize_session=False,
     )
 
     db.delete(group)
@@ -128,9 +125,8 @@ def delete_recurring_group(
 
 
 @router.post("/detect", response_model=DetectionResponse)
-async def detect_recurring(
-    db: Session = Depends(get_db)
-):
+@limiter.limit("5/minute")
+async def detect_recurring(request: Request, db: Session = Depends(get_db)):
     """
     Use AI to detect recurring patterns in transaction history.
     Returns detected patterns without creating groups yet.
@@ -149,22 +145,18 @@ async def detect_recurring(
         for p in patterns
     ]
 
-    return DetectionResponse(
-        detected=detected,
-        total_found=len(detected)
-    )
+    return DetectionResponse(detected=detected, total_found=len(detected))
 
 
 @router.post("/detect/apply")
 async def apply_detection(
     detection_index: int = Query(..., description="Index of detection to apply"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Apply a specific detection result - create recurring group and link transactions.
     Run /detect first, then call this with index of pattern to apply.
     """
-    # Re-run detection to get fresh results
     patterns = await recurring_service.detect_recurring_patterns(db)
 
     if detection_index < 0 or detection_index >= len(patterns):
@@ -180,9 +172,7 @@ async def apply_detection(
 
 @router.post("/transactions/{transaction_id}/mark")
 def mark_transaction_recurring(
-    transaction_id: str,
-    request: MarkRecurringRequest,
-    db: Session = Depends(get_db)
+    transaction_id: str, request: MarkRecurringRequest, db: Session = Depends(get_db)
 ):
     """Mark a transaction as recurring."""
     try:
@@ -195,17 +185,16 @@ def mark_transaction_recurring(
             new_frequency=request.frequency if request.frequency else None,
         )
         response = RecurringGroupResponse.model_validate(group)
-        response.transaction_count = recurring_service.get_group_transaction_count(db, group.id)
+        response.transaction_count = recurring_service.get_group_transaction_count(
+            db, group.id
+        )
         return response
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/transactions/{transaction_id}/unmark")
-def unmark_transaction_recurring(
-    transaction_id: str,
-    db: Session = Depends(get_db)
-):
+def unmark_transaction_recurring(transaction_id: str, db: Session = Depends(get_db)):
     """Remove a transaction from its recurring group."""
     recurring_service.unmark_transaction_recurring(db, transaction_id)
     return {"success": True}

@@ -28,39 +28,18 @@ def get_alerts(
     is_dismissed: Optional[bool] = Query(None),
     type: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Get alerts with optional filters."""
     alerts = alerts_service.get_alerts(
-        db,
-        is_read=is_read,
-        is_dismissed=is_dismissed,
-        alert_type=type,
-        limit=limit
+        db, is_read=is_read, is_dismissed=is_dismissed, alert_type=type, limit=limit
     )
     unread_count = alerts_service.get_unread_count(db)
 
-    alert_items = [
-        AlertResponse(
-            id=str(a.id),
-            type=a.type,
-            severity=a.severity,
-            title=a.title,
-            description=a.description,
-            transaction_id=str(a.transaction_id) if a.transaction_id else None,
-            recurring_group_id=str(a.recurring_group_id) if a.recurring_group_id else None,
-            metadata=a.alert_metadata,
-            is_read=a.is_read,
-            is_dismissed=a.is_dismissed,
-            action_taken=a.action_taken,
-            created_at=a.created_at,
-        ) for a in alerts
-    ]
+    alert_items = [AlertResponse.model_validate(a) for a in alerts]
 
     return AlertsListResponse(
-        items=alert_items,
-        unread_count=unread_count,
-        total=len(alerts)
+        items=alert_items, unread_count=unread_count, total=len(alerts)
     )
 
 
@@ -78,12 +57,20 @@ def get_alert_settings(db: Session = Depends(get_db)):
     settings = alerts_service.get_or_create_settings(db)
     return AlertSettingsResponse(
         id=str(settings.id),
-        large_purchase_threshold=float(settings.large_purchase_threshold) if settings.large_purchase_threshold else None,
+        large_purchase_threshold=float(settings.large_purchase_threshold)
+        if settings.large_purchase_threshold
+        else None,
         large_purchase_multiplier=float(settings.large_purchase_multiplier),
         unusual_merchant_threshold=float(settings.unusual_merchant_threshold),
-        subscription_review_days=int(settings.subscription_review_days) if settings.subscription_review_days else 90,
-        annual_charge_warning_days=int(settings.annual_charge_warning_days) if settings.annual_charge_warning_days else 14,
-        budget_warning_threshold=int(settings.budget_warning_threshold) if settings.budget_warning_threshold else 80,
+        subscription_review_days=int(settings.subscription_review_days)
+        if settings.subscription_review_days
+        else 90,
+        annual_charge_warning_days=int(settings.annual_charge_warning_days)
+        if settings.annual_charge_warning_days
+        else 14,
+        budget_warning_threshold=int(settings.budget_warning_threshold)
+        if settings.budget_warning_threshold
+        else 80,
         budget_alerts_enabled=settings.budget_alerts_enabled,
         alerts_enabled=settings.alerts_enabled,
         created_at=settings.created_at,
@@ -92,10 +79,7 @@ def get_alert_settings(db: Session = Depends(get_db)):
 
 
 @router.patch("/settings", response_model=AlertSettingsResponse)
-def update_alert_settings(
-    update: AlertSettingsUpdate,
-    db: Session = Depends(get_db)
-):
+def update_alert_settings(update: AlertSettingsUpdate, db: Session = Depends(get_db)):
     """Update alert settings."""
     settings = alerts_service.get_or_create_settings(db)
 
@@ -109,12 +93,20 @@ def update_alert_settings(
 
     return AlertSettingsResponse(
         id=str(settings.id),
-        large_purchase_threshold=float(settings.large_purchase_threshold) if settings.large_purchase_threshold else None,
+        large_purchase_threshold=float(settings.large_purchase_threshold)
+        if settings.large_purchase_threshold
+        else None,
         large_purchase_multiplier=float(settings.large_purchase_multiplier),
         unusual_merchant_threshold=float(settings.unusual_merchant_threshold),
-        subscription_review_days=int(settings.subscription_review_days) if settings.subscription_review_days else 90,
-        annual_charge_warning_days=int(settings.annual_charge_warning_days) if settings.annual_charge_warning_days else 14,
-        budget_warning_threshold=int(settings.budget_warning_threshold) if settings.budget_warning_threshold else 80,
+        subscription_review_days=int(settings.subscription_review_days)
+        if settings.subscription_review_days
+        else 90,
+        annual_charge_warning_days=int(settings.annual_charge_warning_days)
+        if settings.annual_charge_warning_days
+        else 14,
+        budget_warning_threshold=int(settings.budget_warning_threshold)
+        if settings.budget_warning_threshold
+        else 80,
         budget_alerts_enabled=settings.budget_alerts_enabled,
         alerts_enabled=settings.alerts_enabled,
         created_at=settings.created_at,
@@ -123,11 +115,7 @@ def update_alert_settings(
 
 
 @router.patch("/{alert_id}", response_model=AlertResponse)
-def update_alert(
-    alert_id: str,
-    update: AlertUpdate,
-    db: Session = Depends(get_db)
-):
+def update_alert(alert_id: str, update: AlertUpdate, db: Session = Depends(get_db)):
     """Update an alert (mark read, dismiss, record action)."""
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
     if not alert:
@@ -140,20 +128,7 @@ def update_alert(
     db.commit()
     db.refresh(alert)
 
-    return AlertResponse(
-        id=str(alert.id),
-        type=alert.type,
-        severity=alert.severity,
-        title=alert.title,
-        description=alert.description,
-        transaction_id=str(alert.transaction_id) if alert.transaction_id else None,
-        recurring_group_id=str(alert.recurring_group_id) if alert.recurring_group_id else None,
-        metadata=alert.alert_metadata,
-        is_read=alert.is_read,
-        is_dismissed=alert.is_dismissed,
-        action_taken=alert.action_taken,
-        created_at=alert.created_at,
-    )
+    return AlertResponse.model_validate(alert)
 
 
 @router.post("/mark-all-read")
@@ -164,10 +139,7 @@ def mark_all_read(db: Session = Depends(get_db)):
 
 
 @router.delete("/{alert_id}")
-def delete_alert(
-    alert_id: str,
-    db: Session = Depends(get_db)
-):
+def delete_alert(alert_id: str, db: Session = Depends(get_db)):
     """Permanently delete an alert."""
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
     if not alert:
@@ -191,8 +163,7 @@ async def trigger_subscription_review(db: Session = Depends(get_db)):
 
 @router.get("/upcoming-renewals", response_model=UpcomingRenewalsResponse)
 def get_upcoming_renewals(
-    days: int = Query(30, ge=1, le=365),
-    db: Session = Depends(get_db)
+    days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db)
 ):
     """Get upcoming subscription renewals."""
     result = alerts_service.get_upcoming_renewals(db, days)
@@ -205,7 +176,4 @@ async def detect_annual_charges(db: Session = Depends(get_db)):
     Detect annual subscription patterns and create alerts for upcoming renewals.
     """
     detected = await alerts_service.detect_annual_charges(db)
-    return {
-        "detected": len(detected),
-        "charges": detected
-    }
+    return {"detected": len(detected), "charges": detected}

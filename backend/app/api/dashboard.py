@@ -323,12 +323,7 @@ def get_account_balances(db: Session = Depends(get_db)):
 
     for acc in accounts:
         balance = float(acc.current_balance or 0)
-        is_asset = acc.account_type.value in (
-            "checking",
-            "savings",
-            "cash",
-            "investment",
-        )
+        is_asset = acc.is_asset
 
         if is_asset:
             total_assets += balance
@@ -386,9 +381,12 @@ def get_category_trends(
 ):
     """Get spending trends by category for the last N months."""
     today = date.today()
-    start_date = date(today.year, today.month - months + 1, 1)
-    if start_date.month <= 0:
-        start_date = date(today.year - 1, start_date.month + 12, 1)
+    m = today.month - months + 1
+    y = today.year
+    while m <= 0:
+        m += 12
+        y -= 1
+    start_date = date(y, m, 1)
 
     results = (
         db.query(

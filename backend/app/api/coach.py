@@ -1,10 +1,14 @@
 """Coach API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from typing import List
 
 from app.dependencies import get_db
+
+limiter = Limiter(key_func=get_remote_address)
 from app.schemas.coach import (
     ChatRequest,
     ChatResponse,
@@ -19,21 +23,27 @@ router = APIRouter(prefix="/coach", tags=["coach"])
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, db: Session = Depends(get_db)):
+@limiter.limit("20/minute")
+async def chat(
+    request: Request, chat_request: ChatRequest, db: Session = Depends(get_db)
+):
     """Send a message to the coach and get a response."""
     service = CoachService(db)
 
     try:
         result = await service.chat(
-            message=request.message, conversation_id=request.conversation_id
+            message=chat_request.message, conversation_id=chat_request.conversation_id
         )
         return ChatResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).error(f"Coach error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An error occurred processing your message")
+        raise HTTPException(
+            status_code=500, detail="An error occurred processing your message"
+        )
 
 
 @router.get("/conversations", response_model=ConversationList)

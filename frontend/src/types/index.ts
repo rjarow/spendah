@@ -336,7 +336,7 @@ export interface DetectionResponse {
 }
 
 // Alert types
-export type AlertType = 'large_purchase' | 'price_increase' | 'new_recurring' | 'unusual_merchant' | 'annual_charge' | 'budget_warning' | 'budget_exceeded'
+export type AlertType = 'large_purchase' | 'price_increase' | 'new_recurring' | 'unusual_merchant' | 'annual_charge' | 'budget_warning' | 'budget_exceeded' | 'subscription_review'
 export type AlertSeverity = 'info' | 'warning' | 'attention'
 
 export interface Alert {

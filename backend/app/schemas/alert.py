@@ -1,6 +1,6 @@
 """Pydantic schemas for alerts."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from app.models.alert import AlertType, Severity
@@ -36,22 +36,13 @@ class AlertResponse(BaseModel):
     transaction_id: Optional[str] = None
     recurring_group_id: Optional[str] = None
     budget_id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = Field(None, validation_alias="alert_metadata")
     is_read: bool
     is_dismissed: bool
     action_taken: Optional[str] = None
     created_at: datetime
 
-    @field_validator('metadata', mode='before')
-    @classmethod
-    def extract_alert_metadata(cls, v):
-        if v is None:
-            return None
-        if isinstance(v, dict):
-            return v
-        return None
-
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class AlertsListResponse(BaseModel):

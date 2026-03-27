@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getTransactions, getCategories, getAccounts, updateTransaction, bulkCategorize, createRule } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -19,18 +19,27 @@ export default function Transactions() {
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [selectedAccount, setSelectedAccount] = useState<string>('')
   const [selectedCategory, setSelectedCategory] = useState<string>('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [ruleToast, setRuleToast] = useState<RuleToast | null>(null)
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
   const { data: transactions, isLoading } = useQuery({
-    queryKey: ['transactions', page, search, selectedAccount, selectedCategory],
+    queryKey: ['transactions', page, debouncedSearch, selectedAccount, selectedCategory],
     queryFn: () => getTransactions({
       page,
       per_page: 50,
-      search: search || undefined,
+      search: debouncedSearch || undefined,
       account_id: selectedAccount || undefined,
       category_id: selectedCategory || undefined,
     }),
@@ -124,10 +133,7 @@ export default function Transactions() {
           placeholder="Search..."
           className="border rounded px-3 py-2"
           value={search}
-          onChange={(e) => {
-            setSearch(e.target.value)
-            setPage(1)
-          }}
+          onChange={(e) => setSearch(e.target.value)}
         />
 
         <select

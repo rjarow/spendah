@@ -20,7 +20,7 @@ class RecurringGroupBase(BaseModel):
     merchant_pattern: str
     expected_amount: Optional[Decimal] = None
     amount_variance: Optional[Decimal] = None
-    frequency: str
+    frequency: Frequency
     category_id: Optional[str] = None
 
 
@@ -33,7 +33,7 @@ class RecurringGroupUpdate(BaseModel):
     merchant_pattern: Optional[str] = None
     expected_amount: Optional[Decimal] = None
     amount_variance: Optional[Decimal] = None
-    frequency: Optional[str] = None
+    frequency: Optional[Frequency] = None
     category_id: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -59,7 +59,7 @@ class MarkRecurringRequest(BaseModel):
     create_new: bool = False  # Or create a new group
     # If create_new is True:
     name: Optional[str] = None
-    frequency: Optional[str] = None
+    frequency: Optional[Frequency] = None
 
 
 class DetectionResult(BaseModel):
@@ -68,7 +68,7 @@ class DetectionResult(BaseModel):
     merchant_pattern: str
     suggested_name: str
     transaction_ids: List[str]
-    frequency: str
+    frequency: Frequency
     average_amount: Decimal
     confidence: float
 

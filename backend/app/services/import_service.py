@@ -50,7 +50,6 @@ from app.services.ai_service import (
 )
 from app.services import rules_service
 from app.services.alerts_service import (
-    analyze_transaction_for_alerts_with_settings,
     analyze_transactions_for_alerts_batch,
     get_category_averages_batch,
     get_known_merchants_batch,

@@ -348,6 +348,7 @@ def analyze_transactions_for_alerts_batch(
         )
         is_new_merchant = merchant not in known_merchants
         if is_new_merchant:
+            known_merchants.add(merchant)
             new_merchants.add(merchant)
 
         recurring = None

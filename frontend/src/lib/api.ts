@@ -42,6 +42,7 @@ import type {
   BudgetProgress,
   BudgetCreate,
   BudgetUpdate,
+  BudgetSuggestion,
   CategorizationRule,
   RuleCreate,
   RuleUpdate,
@@ -437,6 +438,22 @@ export const getBudgetProgress = async (id: string, date?: string) => {
   return response.data
 }
 
+export const getBudgetSuggestions = async (months: number = 3) => {
+  const response = await api.get<{ items: BudgetSuggestion[]; total: number }>('/budgets/suggestions', {
+    params: { months },
+  })
+  return response.data
+}
+
+export const acceptBudgetSuggestions = async (suggestions: Array<{
+  category_id: string
+  amount: number
+  period: string
+}>) => {
+  const response = await api.post<{ items: Budget[]; total: number }>('/budgets/suggestions/accept', suggestions)
+  return response.data
+}
+
 export const getNetWorth = async (): Promise<NetWorthSummary> => {
   const response = await api.get<NetWorthSummary>('/networth')
   return response.data
@@ -538,6 +555,7 @@ export type {
   BudgetProgress,
   BudgetCreate,
   BudgetUpdate,
+  BudgetSuggestion,
   CategorizationRule,
   RuleCreate,
   RuleUpdate,

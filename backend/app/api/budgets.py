@@ -4,8 +4,13 @@ Budget API endpoints.
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
+from decimal import Decimal
+
+from app.dependencies import get_db
+from app.models import Budget, Category, Transaction
+from app.models.budget import BudgetPeriod
 
 from app.dependencies import get_db
 from app.models import Budget, Category, Transaction
@@ -16,7 +21,11 @@ from app.schemas.budget import (
     BudgetList,
     BudgetProgress,
 )
-from app.services.budget_service import get_budget_progress, get_all_budgets_progress
+from app.services.budget_service import (
+    get_budget_progress,
+    get_all_budgets_progress,
+    get_budget_suggestions,
+)
 from app.services.budget_alerts import check_all_budget_alerts
 
 router = APIRouter(tags=["budgets"])
@@ -38,6 +47,53 @@ def list_budgets(
     for budget in budgets:
         items.append(BudgetResponse(**budget.__dict__, category=budget.category))
 
+    return BudgetList(items=items, total=len(items))
+
+
+@router.get("/suggestions")
+def get_budget_suggestions_endpoint(
+    months: int = Query(3, description="Number of months to analyze"),
+    db: Session = Depends(get_db),
+):
+    """Get budget suggestions based on spending history."""
+    suggestions = get_budget_suggestions(db, months)
+    return {"items": suggestions, "total": len(suggestions)}
+
+
+@router.post("/suggestions/accept", response_model=BudgetList, status_code=201)
+def accept_budget_suggestions(
+    suggestions: List[dict],
+    db: Session = Depends(get_db),
+):
+    """Create budgets from suggestions."""
+    created_budgets = []
+    for suggestion in suggestions:
+        category_id = suggestion.get("category_id")
+        amount = suggestion.get("amount")
+        period = suggestion.get("period", "monthly")
+
+        if not category_id or not amount:
+            continue
+
+        category = db.query(Category).filter(Category.id == category_id).first()
+        if not category:
+            continue
+
+        db_budget = Budget(
+            category_id=category_id,
+            amount=Decimal(str(amount)),
+            period=BudgetPeriod(period),
+            start_date=datetime.utcnow(),
+            is_active=True,
+        )
+        db.add(db_budget)
+        created_budgets.append(db_budget)
+
+    db.commit()
+    for budget in created_budgets:
+        db.refresh(budget)
+
+    items = [BudgetResponse(**b.__dict__, category=b.category) for b in created_budgets]
     return BudgetList(items=items, total=len(items))
 
 

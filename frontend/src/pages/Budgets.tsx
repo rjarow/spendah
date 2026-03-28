@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getBudgets, getCategories, createBudget, updateBudget, deleteBudget, getBudgetProgress } from '@/lib/api'
+import { getBudgets, getCategories, createBudget, updateBudget, deleteBudget, getBudgetProgress, getBudgetSuggestions, acceptBudgetSuggestions } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { BudgetProgressBar } from '@/components/BudgetProgressBar'
 import { formatCurrency } from '@/lib/formatters'
-import { Trash2, Edit, Plus, Target, AlertCircle, Calendar } from 'lucide-react'
-import type { Budget, BudgetProgress, Category } from '@/types'
+import { Trash2, Edit, Plus, Target, AlertCircle, Calendar, Sparkles } from 'lucide-react'
+import type { Budget, BudgetProgress, Category, BudgetSuggestion } from '@/types'
 
 export default function Budgets() {
   const queryClient = useQueryClient()
@@ -55,6 +55,19 @@ export default function Budgets() {
   const { data: categories } = useQuery({
     queryKey: ['categories'],
     queryFn: getCategories,
+  })
+
+  const { data: suggestions } = useQuery({
+    queryKey: ['budget-suggestions'],
+    queryFn: () => getBudgetSuggestions(3),
+  })
+
+  const acceptSuggestionMutation = useMutation({
+    mutationFn: acceptBudgetSuggestions,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['budgets'] })
+      queryClient.invalidateQueries({ queryKey: ['budget-suggestions'] })
+    },
   })
 
   const createMutation = useMutation({
@@ -188,6 +201,64 @@ export default function Budgets() {
           Add Budget
         </Button>
       </div>
+
+      {suggestions && suggestions.items && suggestions.items.length > 0 && (
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-purple-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Budget Suggestions</h2>
+          </div>
+          <p className="text-sm text-gray-600">
+            Based on your spending patterns, we recommend setting up these budgets:
+          </p>
+          <div className="grid gap-3">
+            {suggestions.items.map((suggestion: BudgetSuggestion) => (
+              <div key={suggestion.category_id} className="bg-white rounded-lg p-4 flex items-center justify-between shadow-sm">
+                <div>
+                  <h3 className="font-medium text-gray-900">{suggestion.category_name}</h3>
+                  <p className="text-sm text-gray-500">
+                    Avg ${formatCurrency(suggestion.avg_monthly_spend)}/mo over 3 months ({suggestion.transaction_count} transactions)
+                  </p>
+                  <p className="text-sm font-medium text-purple-600 mt-1">
+                    Suggested budget: {formatCurrency(suggestion.suggested_amount)}/mo
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => acceptSuggestionMutation.mutate([{
+                    category_id: suggestion.category_id,
+                    amount: suggestion.suggested_amount,
+                    period: 'monthly',
+                  }])}
+                  disabled={acceptSuggestionMutation.isPending}
+                >
+                  Accept
+                </Button>
+              </div>
+            ))}
+          </div>
+          {suggestions.items.length > 1 && (
+            <div className="pt-2 border-t border-purple-200">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => acceptSuggestionMutation.mutate(
+                  suggestions.items.map((s: BudgetSuggestion) => ({
+                    category_id: s.category_id,
+                    amount: s.suggested_amount,
+                    period: 'monthly' as const,
+                  }))
+                )}
+                disabled={acceptSuggestionMutation.isPending}
+                className="text-purple-700 hover:text-purple-800 hover:bg-purple-100"
+              >
+                Accept All Suggestions
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {(!budgets?.items || budgets.items.length === 0) ? (
         <div className="bg-white border rounded-lg p-8 text-center">

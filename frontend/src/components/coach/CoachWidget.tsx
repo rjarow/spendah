@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { MessageCircle, Send, X, Loader2 } from 'lucide-react'
-import { coachApi } from '@/lib/api'
+import { useCoachChat } from '@/hooks/useCoachChat'
 import { ChatMessage } from './ChatMessage'
-import type { CoachMessage, QuickQuestion } from '@/types'
 
 interface CoachWidgetProps {
   onExpand?: () => void
@@ -10,74 +9,31 @@ interface CoachWidgetProps {
 
 export function CoachWidget({ onExpand }: CoachWidgetProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [messages, setMessages] = useState<CoachMessage[]>([])
-  const [conversationId, setConversationId] = useState<string | null>(null)
   const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [quickQuestions, setQuickQuestions] = useState<QuickQuestion[]>([])
 
-  const loadQuickQuestions = async () => {
-    try {
-      const questions = await coachApi.getQuickQuestions()
-      setQuickQuestions(questions)
-    } catch (error) {
-      console.error('Failed to load quick questions:', error)
-    }
-  }
+  const {
+    messages,
+    quickQuestions,
+    conversationId,
+    streamingContent,
+    isStreaming,
+    sendMessage,
+    startNewConversation,
+  } = useCoachChat()
 
   const handleOpen = () => {
     setIsOpen(true)
-    if (quickQuestions.length === 0) {
-      loadQuickQuestions()
-    }
   }
 
   const handleSend = async (text?: string) => {
     const message = text || input.trim()
-    if (!message || isLoading) return
-
-    const userMessage: CoachMessage = {
-      id: `temp-${Date.now()}`,
-      role: 'user',
-      content: message,
-      created_at: new Date().toISOString(),
-    }
-
-    setMessages(prev => [...prev, userMessage])
+    if (!message || isStreaming) return
     setInput('')
-    setIsLoading(true)
-
-    try {
-      const response = await coachApi.chat(message, conversationId || undefined)
-      
-      if (!conversationId) {
-        setConversationId(response.conversation_id)
-      }
-
-      const assistantMessage: CoachMessage = {
-        id: response.message_id,
-        role: 'assistant',
-        content: response.response,
-        created_at: new Date().toISOString(),
-      }
-
-      setMessages(prev => [...prev, assistantMessage])
-    } catch (error) {
-      console.error('Chat error:', error)
-      setMessages(prev => [...prev, {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-        created_at: new Date().toISOString(),
-      }])
-    } finally {
-      setIsLoading(false)
-    }
+    await sendMessage(message, conversationId || undefined)
   }
 
   const handleNewConversation = () => {
-    setMessages([])
-    setConversationId(null)
+    startNewConversation()
   }
 
   if (!isOpen) {
@@ -119,7 +75,7 @@ export function CoachWidget({ onExpand }: CoachWidgetProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
+        {messages.length === 0 && !streamingContent ? (
           <div className="p-4 space-y-4">
             <p className="text-sm text-muted-foreground text-center">
               Ask me anything about your finances!
@@ -141,7 +97,18 @@ export function CoachWidget({ onExpand }: CoachWidgetProps) {
             {messages.map((message) => (
               <ChatMessage key={message.id} message={message} />
             ))}
-            {isLoading && (
+            {isStreaming && streamingContent && (
+              <ChatMessage 
+                message={{
+                  id: 'streaming',
+                  role: 'assistant',
+                  content: streamingContent,
+                  created_at: new Date().toISOString(),
+                }} 
+                isStreaming={true}
+              />
+            )}
+            {isStreaming && !streamingContent && (
               <div className="flex gap-3 p-4">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -165,12 +132,12 @@ export function CoachWidget({ onExpand }: CoachWidgetProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask about your finances..."
-            disabled={isLoading}
+            disabled={isStreaming}
             className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <button 
             type="submit" 
-            disabled={isLoading || !input.trim()}
+            disabled={isStreaming || !input.trim()}
             className="p-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
           >
             <Send className="h-4 w-4" />

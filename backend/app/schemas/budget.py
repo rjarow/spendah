@@ -11,6 +11,7 @@ from app.models.budget import BudgetPeriod
 
 class BudgetBase(BaseModel):
     """Base budget schema."""
+
     amount: Decimal = Field(..., gt=0)
     period: BudgetPeriod
     start_date: Optional[datetime] = Field(None)
@@ -19,11 +20,13 @@ class BudgetBase(BaseModel):
 
 class BudgetCreate(BudgetBase):
     """Schema for creating a budget."""
+
     category_id: Optional[str] = Field(None)
 
 
 class BudgetUpdate(BaseModel):
     """Schema for updating a budget."""
+
     category_id: Optional[str] = None
     amount: Optional[Decimal] = Field(None, gt=0)
     period: Optional[BudgetPeriod] = None
@@ -33,6 +36,7 @@ class BudgetUpdate(BaseModel):
 
 class CategoryResponse(BaseModel):
     """Schema for category response."""
+
     id: str
     name: str
 
@@ -42,6 +46,7 @@ class CategoryResponse(BaseModel):
 
 class BudgetResponse(BudgetBase):
     """Schema for budget response."""
+
     id: str
     category_id: Optional[str]
     created_at: datetime
@@ -54,12 +59,14 @@ class BudgetResponse(BudgetBase):
 
 class BudgetList(BaseModel):
     """Schema for listing budgets."""
+
     items: list[BudgetResponse]
     total: int
 
 
 class BudgetProgress(BaseModel):
     """Schema for budget progress calculation."""
+
     id: str
     category_id: Optional[str]
     category_name: Optional[str] = None
@@ -73,3 +80,11 @@ class BudgetProgress(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BudgetSuggestionAccept(BaseModel):
+    """Schema for accepting a budget suggestion."""
+
+    category_id: str
+    amount: float
+    period: str = "monthly"

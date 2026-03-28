@@ -471,6 +471,14 @@ export interface BudgetUpdate {
   start_date?: string
 }
 
+export interface BudgetSuggestion {
+  category_id: string
+  category_name: string
+  avg_monthly_spend: number
+  suggested_amount: number
+  transaction_count: number
+}
+
 // Coach types
 export interface ChatRequest {
   message: string

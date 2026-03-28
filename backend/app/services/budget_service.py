@@ -2,6 +2,7 @@
 Budget progress calculation service.
 """
 
+import math
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Optional, Dict, List
@@ -228,3 +229,76 @@ def get_all_budgets_progress(
         )
 
     return progress_list
+
+
+def get_budget_suggestions(db: Session, months: int = 3) -> List[Dict]:
+    """
+    Get budget suggestions based on spending history.
+
+    Args:
+        db: Database session
+        months: Number of months to analyze (default 3)
+
+    Returns:
+        List of budget suggestions with category_id, category_name, avg_monthly_spend,
+        suggested_amount, and transaction_count
+    """
+    cutoff_date = date.today() - timedelta(days=months * 30)
+
+    existing_budget_categories = set()
+    existing_budgets = (
+        db.query(Budget.category_id)
+        .filter(Budget.is_active == True, Budget.category_id.isnot(None))
+        .all()
+    )
+    for (cat_id,) in existing_budgets:
+        if cat_id:
+            existing_budget_categories.add(cat_id)
+
+    spending_by_category = (
+        db.query(
+            Transaction.category_id,
+            func.count(Transaction.id).label("transaction_count"),
+            func.sum(func.abs(Transaction.amount)).label("total_spent"),
+        )
+        .filter(
+            Transaction.date >= cutoff_date,
+            Transaction.amount < 0,
+            Transaction.category_id.isnot(None),
+        )
+        .group_by(Transaction.category_id)
+        .all()
+    )
+
+    all_category_ids = [cat_id for cat_id, _, _ in spending_by_category if cat_id]
+    categories_by_id: Dict[str, str] = {}
+    if all_category_ids:
+        categories = db.query(Category).filter(Category.id.in_(all_category_ids)).all()
+        categories_by_id = {str(c.id): c.name for c in categories}
+
+    suggestions = []
+    for category_id, transaction_count, total_spent in spending_by_category:
+        if category_id in existing_budget_categories:
+            continue
+
+        if transaction_count < 3:
+            continue
+
+        avg_monthly_spend = float(total_spent) / months
+        suggested_amount = math.ceil(avg_monthly_spend / 10) * 10
+
+        category_name = categories_by_id.get(category_id)
+        if not category_name:
+            continue
+
+        suggestions.append(
+            {
+                "category_id": category_id,
+                "category_name": category_name,
+                "avg_monthly_spend": round(avg_monthly_spend, 2),
+                "suggested_amount": suggested_amount,
+                "transaction_count": transaction_count,
+            }
+        )
+
+    return suggestions

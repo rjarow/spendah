@@ -353,14 +353,9 @@ def get_account_balances(db: Session = Depends(get_db)):
     change_from_last_month = None
     if prev_snapshot:
         prev_net = sum(
-            float(acc.current_balance or 0)
-            for acc in accounts
-            if acc.account_type.value in ("checking", "savings", "cash", "investment")
+            float(acc.current_balance or 0) for acc in accounts if acc.is_asset
         ) - sum(
-            abs(float(acc.current_balance or 0))
-            for acc in accounts
-            if acc.account_type.value
-            not in ("checking", "savings", "cash", "investment")
+            abs(float(acc.current_balance or 0)) for acc in accounts if not acc.is_asset
         )
         change_from_last_month = net_worth - prev_net
 

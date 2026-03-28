@@ -2,13 +2,10 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from typing import List
 
 from app.dependencies import get_db
-
-limiter = Limiter(key_func=get_remote_address)
+from app.rate_limit import limiter
 from app.schemas.coach import (
     ChatRequest,
     ChatResponse,

@@ -70,7 +70,11 @@ async def chat_stream(
             logging.getLogger(__name__).error(f"Coach stream error: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': 'An error occurred'})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/conversations", response_model=ConversationList)

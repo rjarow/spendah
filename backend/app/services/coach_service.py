@@ -179,21 +179,24 @@ class CoachService:
             self.db.rollback()
             raise
 
-        display_response = self.tokenizer.detokenize(full_response)
+        try:
+            assistant_msg = Message(
+                conversation_id=conversation.id,
+                role=MessageRole.assistant,
+                content=full_response,
+            )
+            self.db.add(assistant_msg)
 
-        assistant_msg = Message(
-            conversation_id=conversation.id,
-            role=MessageRole.assistant,
-            content=full_response,
-        )
-        self.db.add(assistant_msg)
+            if not conversation.title and len(history) == 0:
+                conversation.title = await self._generate_title(message)
 
-        if not conversation.title and len(history) == 0:
-            conversation.title = await self._generate_title(message)
+            conversation.last_message_at = datetime.utcnow()
 
-        conversation.last_message_at = datetime.utcnow()
-
-        self.db.commit()
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save assistant message: {e}")
+            self.db.rollback()
+            raise
 
         yield {
             "type": "done",

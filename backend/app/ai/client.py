@@ -192,6 +192,7 @@ class AIClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
 
         try:
@@ -203,14 +204,16 @@ class AIClient:
 
             response = await litellm.acompletion(**kwargs)
 
-            full_response = ""
+            last_usage = None
             async for chunk in response:
+                if hasattr(chunk, "usage") and chunk.usage:
+                    last_usage = chunk
                 content = chunk.choices[0].delta.content
                 if content:
-                    full_response += content
                     yield content
 
-            self._record_usage(response)
+            if last_usage:
+                self._record_usage(last_usage)
         except Exception as e:
             logger.error(f"AI streaming completion error: {e}")
             raise

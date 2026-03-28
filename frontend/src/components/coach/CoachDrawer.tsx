@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Send, Loader2, History, Plus } from 'lucide-react'
-import { coachApi } from '@/lib/api'
+import { useCoachChat } from '@/hooks/useCoachChat'
 import { ChatMessage } from './ChatMessage'
-import type { CoachMessage, ConversationSummary } from '@/types'
 
 interface CoachDrawerProps {
   trigger?: React.ReactNode
@@ -10,93 +9,47 @@ interface CoachDrawerProps {
   onOpenChange?: (open: boolean) => void
 }
 
-export function CoachDrawer({ trigger, open, onOpenChange }: CoachDrawerProps) {
-  const [messages, setMessages] = useState<CoachMessage[]>([])
-  const [conversationId, setConversationId] = useState<string | null>(null)
-  const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+export function CoachDrawer(_props: CoachDrawerProps) {
   const [showHistory, setShowHistory] = useState(false)
-  const [conversations, setConversations] = useState<ConversationSummary[]>([])
+  const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const {
+    messages,
+    conversations,
+    conversationId,
+    streamingContent,
+    isStreaming,
+    sendMessage,
+    loadConversation,
+    startNewConversation,
+  } = useCoachChat()
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages])
-
-  const loadConversations = async () => {
-    try {
-      const result = await coachApi.getConversations(10)
-      setConversations(result.items)
-    } catch (error) {
-      console.error('Failed to load conversations:', error)
-    }
-  }
-
-  const loadConversation = async (id: string) => {
-    try {
-      const conversation = await coachApi.getConversation(id)
-      setMessages(conversation.messages)
-      setConversationId(id)
-      setShowHistory(false)
-    } catch (error) {
-      console.error('Failed to load conversation:', error)
-    }
-  }
+  }, [messages, streamingContent])
 
   const handleSend = async () => {
     const message = input.trim()
-    if (!message || isLoading) return
-
-    const userMessage: CoachMessage = {
-      id: `temp-${Date.now()}`,
-      role: 'user',
-      content: message,
-      created_at: new Date().toISOString(),
-    }
-
-    setMessages(prev => [...prev, userMessage])
+    if (!message || isStreaming) return
     setInput('')
-    setIsLoading(true)
-
-    try {
-      const response = await coachApi.chat(message, conversationId || undefined)
-      
-      if (!conversationId) {
-        setConversationId(response.conversation_id)
-      }
-
-      const assistantMessage: CoachMessage = {
-        id: response.message_id,
-        role: 'assistant',
-        content: response.response,
-        created_at: new Date().toISOString(),
-      }
-
-      setMessages(prev => [...prev, assistantMessage])
-    } catch (error) {
-      console.error('Chat error:', error)
-      setMessages(prev => [...prev, {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-        created_at: new Date().toISOString(),
-      }])
-    } finally {
-      setIsLoading(false)
-    }
+    await sendMessage(message, conversationId || undefined)
   }
 
   const handleNewConversation = () => {
-    setMessages([])
-    setConversationId(null)
+    startNewConversation()
     setShowHistory(false)
   }
 
   const handleShowHistory = () => {
-    loadConversations()
     setShowHistory(true)
+  }
+
+  const handleLoadConversation = (id: string) => {
+    loadConversation(id)
+    setShowHistory(false)
   }
 
   return (
@@ -133,7 +86,7 @@ export function CoachDrawer({ trigger, open, onOpenChange }: CoachDrawerProps) {
                 conversations.map((conv) => (
                   <button
                     key={conv.id}
-                    onClick={() => loadConversation(conv.id)}
+                    onClick={() => handleLoadConversation(conv.id)}
                     className="w-full text-left p-3 rounded-lg hover:bg-muted transition-colors"
                   >
                     <p className="font-medium text-sm truncate">
@@ -151,7 +104,7 @@ export function CoachDrawer({ trigger, open, onOpenChange }: CoachDrawerProps) {
           <>
             <div className="flex-1 overflow-y-auto" ref={scrollRef}>
               <div className="p-4">
-                {messages.length === 0 ? (
+                {messages.length === 0 && !streamingContent ? (
                   <div className="text-center py-12">
                     <p className="text-muted-foreground">
                       Ask me anything about your finances!
@@ -162,7 +115,18 @@ export function CoachDrawer({ trigger, open, onOpenChange }: CoachDrawerProps) {
                     <ChatMessage key={message.id} message={message} />
                   ))
                 )}
-                {isLoading && (
+                {isStreaming && streamingContent && (
+                  <ChatMessage 
+                    message={{
+                      id: 'streaming',
+                      role: 'assistant',
+                      content: streamingContent,
+                      created_at: new Date().toISOString(),
+                    }} 
+                    isStreaming={true}
+                  />
+                )}
+                {isStreaming && !streamingContent && (
                   <div className="flex gap-3 p-4">
                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -185,13 +149,13 @@ export function CoachDrawer({ trigger, open, onOpenChange }: CoachDrawerProps) {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Ask about your finances..."
-                  disabled={isLoading}
+                  disabled={isStreaming}
                   className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <button 
                   type="submit" 
                   className="p-2 bg-primary text-primary-foreground rounded-md disabled:opacity-50"
-                  disabled={isLoading || !input.trim()}
+                  disabled={isStreaming || !input.trim()}
                 >
                   <Send className="h-4 w-4" />
                 </button>

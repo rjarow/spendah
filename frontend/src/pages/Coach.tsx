@@ -1,117 +1,41 @@
 import { useState, useEffect, useRef } from 'react'
 import { Send, Loader2, Plus, Trash2 } from 'lucide-react'
-import { coachApi } from '@/lib/api'
+import { useCoachChat } from '@/hooks/useCoachChat'
 import { ChatMessage } from '@/components/coach/ChatMessage'
-import type { CoachMessage, ConversationSummary, QuickQuestion } from '@/types'
 
 export default function CoachPage() {
-  const [messages, setMessages] = useState<CoachMessage[]>([])
-  const [conversationId, setConversationId] = useState<string | null>(null)
   const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [conversations, setConversations] = useState<ConversationSummary[]>([])
-  const [quickQuestions, setQuickQuestions] = useState<QuickQuestion[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    loadConversations()
-    loadQuickQuestions()
-  }, [])
+  const {
+    messages,
+    conversations,
+    quickQuestions,
+    conversationId,
+    streamingContent,
+    isStreaming,
+    sendMessage,
+    deleteConversation,
+    loadConversation,
+    startNewConversation,
+  } = useCoachChat()
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages])
-
-  const loadConversations = async () => {
-    try {
-      const result = await coachApi.getConversations(20)
-      setConversations(result.items)
-    } catch (error) {
-      console.error('Failed to load conversations:', error)
-    }
-  }
-
-  const loadQuickQuestions = async () => {
-    try {
-      const questions = await coachApi.getQuickQuestions()
-      setQuickQuestions(questions)
-    } catch (error) {
-      console.error('Failed to load quick questions:', error)
-    }
-  }
-
-  const loadConversation = async (id: string) => {
-    try {
-      const conversation = await coachApi.getConversation(id)
-      setMessages(conversation.messages)
-      setConversationId(id)
-    } catch (error) {
-      console.error('Failed to load conversation:', error)
-    }
-  }
+  }, [messages, streamingContent])
 
   const handleSend = async (text?: string) => {
     const message = text || input.trim()
-    if (!message || isLoading) return
-
-    const userMessage: CoachMessage = {
-      id: `temp-${Date.now()}`,
-      role: 'user',
-      content: message,
-      created_at: new Date().toISOString(),
-    }
-
-    setMessages(prev => [...prev, userMessage])
+    if (!message || isStreaming) return
     setInput('')
-    setIsLoading(true)
-
-    try {
-      const response = await coachApi.chat(message, conversationId || undefined)
-      
-      if (!conversationId) {
-        setConversationId(response.conversation_id)
-        loadConversations()
-      }
-
-      const assistantMessage: CoachMessage = {
-        id: response.message_id,
-        role: 'assistant',
-        content: response.response,
-        created_at: new Date().toISOString(),
-      }
-
-      setMessages(prev => [...prev, assistantMessage])
-    } catch (error) {
-      console.error('Chat error:', error)
-      setMessages(prev => [...prev, {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-        created_at: new Date().toISOString(),
-      }])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleNewConversation = () => {
-    setMessages([])
-    setConversationId(null)
+    await sendMessage(message, conversationId || undefined)
   }
 
   const handleDeleteConversation = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    try {
-      await coachApi.deleteConversation(id)
-      if (conversationId === id) {
-        handleNewConversation()
-      }
-      loadConversations()
-    } catch (error) {
-      console.error('Failed to delete conversation:', error)
-    }
+    await deleteConversation(id)
   }
 
   return (
@@ -121,7 +45,7 @@ export default function CoachPage() {
           <h2 className="text-lg font-medium">Conversations</h2>
           <button 
             className="p-2 hover:bg-muted rounded-md border"
-            onClick={handleNewConversation}
+            onClick={startNewConversation}
             title="New conversation"
           >
             <Plus className="h-4 w-4" />
@@ -164,7 +88,7 @@ export default function CoachPage() {
         </div>
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4" ref={scrollRef}>
-            {messages.length === 0 ? (
+            {messages.length === 0 && !streamingContent ? (
               <div className="h-full flex flex-col items-center justify-center text-center py-12">
                 <h3 className="text-xl font-semibold mb-2">
                   How can I help you today?
@@ -190,7 +114,18 @@ export default function CoachPage() {
                 {messages.map((message) => (
                   <ChatMessage key={message.id} message={message} />
                 ))}
-                {isLoading && (
+                {isStreaming && streamingContent && (
+                  <ChatMessage 
+                    message={{
+                      id: 'streaming',
+                      role: 'assistant',
+                      content: streamingContent,
+                      created_at: new Date().toISOString(),
+                    }} 
+                    isStreaming={true}
+                  />
+                )}
+                {isStreaming && !streamingContent && (
                   <div className="flex gap-3 p-4">
                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -214,12 +149,12 @@ export default function CoachPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask about your finances..."
-                disabled={isLoading}
+                disabled={isStreaming}
                 className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               />
               <button 
                 type="submit" 
-                disabled={isLoading || !input.trim()}
+                disabled={isStreaming || !input.trim()}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
               >
                 <Send className="h-4 w-4 mr-2" />

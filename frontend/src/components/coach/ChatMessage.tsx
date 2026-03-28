@@ -5,9 +5,10 @@ import type { CoachMessage } from '@/types'
 
 interface ChatMessageProps {
   message: CoachMessage
+  isStreaming?: boolean
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const isUser = message.role === 'user'
   
   return (
@@ -34,6 +35,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {message.content}
             </ReactMarkdown>
+            {isStreaming && (
+              <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
+            )}
           </div>
         )}
         <span className="text-xs opacity-60 mt-1 block">

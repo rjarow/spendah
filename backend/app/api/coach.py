@@ -1,6 +1,9 @@
 """Coach API endpoints."""
 
+import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -41,6 +44,33 @@ async def chat(
         raise HTTPException(
             status_code=500, detail="An error occurred processing your message"
         )
+
+
+@router.post("/chat/stream")
+@limiter.limit("20/minute")
+async def chat_stream(
+    request: Request, chat_request: ChatRequest, db: Session = Depends(get_db)
+):
+    """Stream a message to the coach and get a response."""
+    service = CoachService(db)
+
+    async def event_generator():
+        try:
+            async for chunk in service.chat_stream(
+                message=chat_request.message,
+                conversation_id=chat_request.conversation_id,
+            ):
+                if chunk["type"] == "token":
+                    yield f"data: {json.dumps({'type': 'token', 'content': chunk['content']})}\n\n"
+                elif chunk["type"] == "done":
+                    yield f"data: {json.dumps({'type': 'done', 'conversation_id': chunk['conversation_id'], 'message_id': chunk['message_id']})}\n\n"
+        except ValueError as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Coach stream error: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': 'An error occurred'})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.get("/conversations", response_model=ConversationList)

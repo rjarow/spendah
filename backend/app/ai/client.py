@@ -1,7 +1,7 @@
 import logging
 import litellm
 import uuid
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, AsyncIterator
 import json
 from sqlalchemy.orm import Session
 
@@ -172,6 +172,47 @@ class AIClient:
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"AI completion error: {e}")
+            raise
+
+    async def complete_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.1,
+        max_tokens: int = 1000,
+    ) -> AsyncIterator[str]:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        kwargs: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+
+        try:
+            api_key = self._get_api_key(self.provider)
+            if api_key:
+                kwargs["api_key"] = api_key
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+
+            response = await litellm.acompletion(**kwargs)
+
+            full_response = ""
+            async for chunk in response:
+                content = chunk.choices[0].delta.content
+                if content:
+                    full_response += content
+                    yield content
+
+            self._record_usage(response)
+        except Exception as e:
+            logger.error(f"AI streaming completion error: {e}")
             raise
 
     async def complete_json(

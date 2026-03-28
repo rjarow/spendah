@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, AsyncIterator
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
@@ -110,6 +110,93 @@ class CoachService:
 
         return {
             "response": display_response,
+            "conversation_id": conversation.id,
+            "message_id": assistant_msg.id,
+        }
+
+    async def chat_stream(
+        self, message: str, conversation_id: Optional[str] = None
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Process a chat message and stream the coach's response.
+
+        Args:
+            message: User's message
+            conversation_id: Existing conversation ID, or None for new
+
+        Yields:
+            Dict with "type" field: "token" for text chunks, "done" for final metadata
+        """
+        if conversation_id:
+            conversation = (
+                self.db.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .first()
+            )
+            if not conversation:
+                raise ValueError(f"Conversation {conversation_id} not found")
+        else:
+            conversation = Conversation()
+            self.db.add(conversation)
+            self.db.flush()
+
+        tokenized_message = self._tokenize_message(message)
+
+        user_msg = Message(
+            conversation_id=conversation.id,
+            role=MessageRole.user,
+            content=tokenized_message,
+        )
+        self.db.add(user_msg)
+
+        history = self._get_conversation_history(conversation.id)
+
+        context = await self._assemble_context(message)
+
+        sanitized_message = sanitize_for_prompt(message, max_length=2000)
+        sanitized_history = [
+            {
+                "role": h["role"],
+                "content": sanitize_for_prompt(h["content"], max_length=2000),
+            }
+            for h in history
+        ]
+        full_prompt = build_coach_prompt(sanitized_message, context, sanitized_history)
+        system_prompt = COACH_SYSTEM_PROMPT.format(
+            current_date=date.today().isoformat()
+        )
+
+        try:
+            ai_client = get_ai_client_with_db(self.db, task="coach")
+            full_response = ""
+            async for chunk in ai_client.complete_stream(
+                system_prompt=system_prompt, user_prompt=full_prompt
+            ):
+                full_response += chunk
+                yield {"type": "token", "content": chunk}
+        except Exception as e:
+            logger.error(f"AI streaming error in coach: {e}")
+            self.db.rollback()
+            raise
+
+        display_response = self.tokenizer.detokenize(full_response)
+
+        assistant_msg = Message(
+            conversation_id=conversation.id,
+            role=MessageRole.assistant,
+            content=full_response,
+        )
+        self.db.add(assistant_msg)
+
+        if not conversation.title and len(history) == 0:
+            conversation.title = await self._generate_title(message)
+
+        conversation.last_message_at = datetime.utcnow()
+
+        self.db.commit()
+
+        yield {
+            "type": "done",
             "conversation_id": conversation.id,
             "message_id": assistant_msg.id,
         }

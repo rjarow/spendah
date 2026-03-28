@@ -99,7 +99,11 @@ def get_budget_progress(
             )
             .scalar()
         )
-        spent = Decimal(str(spent_result)) if spent_result else Decimal("0.00")
+        spent = (
+            Decimal(str(spent_result)).quantize(Decimal("0.01"))
+            if spent_result
+            else Decimal("0.00")
+        )
     else:
         spent_result = (
             db.query(func.sum(func.abs(Transaction.amount)))

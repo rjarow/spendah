@@ -71,13 +71,17 @@ def get_networth_breakdown(db: Session) -> Dict[str, Any]:
         calc_bal, is_stale = get_calculated_balance(db, account)
         balance = Decimal(str(calc_bal))
 
+        manual_balance = (
+            account.current_balance
+            if account.current_balance is not None
+            else Decimal("0.00")
+        )
+
         account_info = {
             "id": str(account.id),
             "name": account.name,
             "account_type": account.account_type.value,
-            "current_balance": float(account.current_balance)
-            if account.current_balance is not None
-            else 0.0,
+            "current_balance": float(manual_balance),
             "calculated_balance": calc_bal,
             "is_stale": is_stale,
             "is_asset": account.is_asset,
@@ -87,12 +91,9 @@ def get_networth_breakdown(db: Session) -> Dict[str, Any]:
         }
 
         if account.is_asset:
-            total_assets += balance
+            total_assets += manual_balance
         else:
-            if balance < 0:
-                total_liabilities += abs(balance)
-            else:
-                total_liabilities += balance
+            total_liabilities += abs(manual_balance)
 
         accounts_data.append(account_info)
 

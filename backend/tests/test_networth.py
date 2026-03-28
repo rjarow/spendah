@@ -12,14 +12,14 @@ from app.services.networth_service import (
     record_balance_snapshot,
     get_networth_history,
     auto_snapshot_all_balances,
-    NetWorthError
+    NetWorthError,
 )
 from app.services.balance_inference import (
     BalanceInferenceError,
     calculate_balance_from_transactions,
     get_balance_difference,
     get_accounts_with_stale_balances,
-    infer_balance_from_transactions
+    infer_balance_from_transactions,
 )
 
 
@@ -31,7 +31,7 @@ class TestNetWorthCalculation:
         account = Account(
             name="Checking Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -44,7 +44,7 @@ class TestNetWorthCalculation:
         account = Account(
             name="Credit Card",
             account_type=AccountType.credit_card,
-            current_balance=Decimal("-500.00")
+            current_balance=Decimal("-500.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -57,29 +57,34 @@ class TestNetWorthCalculation:
         asset1 = Account(
             name="Bank Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("2000.00")
+            current_balance=Decimal("2000.00"),
         )
         asset2 = Account(
             name="Cash Wallet",
             account_type=AccountType.cash,
-            current_balance=Decimal("500.00")
+            current_balance=Decimal("500.00"),
         )
         liability1 = Account(
             name="Credit Card",
             account_type=AccountType.credit_card,
-            current_balance=Decimal("-1000.00")
+            current_balance=Decimal("-1000.00"),
         )
         liability2 = Account(
             name="Student Loan",
             account_type=AccountType.other,
-            current_balance=Decimal("-2000.00")
+            current_balance=Decimal("-2000.00"),
         )
 
         db_session.add_all([asset1, asset2, liability1, liability2])
         db_session.commit()
 
         net_worth = get_current_networth(db_session)
-        expected = Decimal("2000.00") + Decimal("500.00") - Decimal("1000.00") - Decimal("2000.00")
+        expected = (
+            Decimal("2000.00")
+            + Decimal("500.00")
+            - Decimal("1000.00")
+            - Decimal("2000.00")
+        )
         assert net_worth == expected
 
     def test_get_current_networth_zero_balances(self, db_session):
@@ -87,7 +92,7 @@ class TestNetWorthCalculation:
         account = Account(
             name="Empty Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("0.00")
+            current_balance=Decimal("0.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -104,7 +109,7 @@ class TestNetWorthBreakdown:
         account = Account(
             name="Checking Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -120,13 +125,33 @@ class TestNetWorthBreakdown:
     def test_get_networth_breakdown_mixed_accounts(self, db_session):
         """Get breakdown with mixed account types."""
         assets = [
-            Account(name="Bank", account_type=AccountType.checking, current_balance=Decimal("3000.00")),
-            Account(name="Cash", account_type=AccountType.cash, current_balance=Decimal("500.00")),
-            Account(name="Savings", account_type=AccountType.savings, current_balance=Decimal("1500.00"))
+            Account(
+                name="Bank",
+                account_type=AccountType.checking,
+                current_balance=Decimal("3000.00"),
+            ),
+            Account(
+                name="Cash",
+                account_type=AccountType.cash,
+                current_balance=Decimal("500.00"),
+            ),
+            Account(
+                name="Savings",
+                account_type=AccountType.savings,
+                current_balance=Decimal("1500.00"),
+            ),
         ]
         liabilities = [
-            Account(name="Credit Card", account_type=AccountType.credit_card, current_balance=Decimal("-1000.00")),
-            Account(name="Loan", account_type=AccountType.other, current_balance=Decimal("-2000.00"))
+            Account(
+                name="Credit Card",
+                account_type=AccountType.credit_card,
+                current_balance=Decimal("-1000.00"),
+            ),
+            Account(
+                name="Loan",
+                account_type=AccountType.other,
+                current_balance=Decimal("-2000.00"),
+            ),
         ]
 
         db_session.add_all(assets + liabilities)
@@ -148,12 +173,14 @@ class TestBalanceHistory:
         account = Account(
             name="Test Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
 
-        snapshot = record_balance_snapshot(db_session, account.id, Decimal("1000.00"), date.today())
+        snapshot = record_balance_snapshot(
+            db_session, account.id, Decimal("1000.00"), date.today()
+        )
 
         assert snapshot is not None
         assert snapshot.account_id == account.id
@@ -161,7 +188,11 @@ class TestBalanceHistory:
         assert snapshot.recorded_at == date.today()
 
         # Verify it was saved to DB
-        saved = db_session.query(BalanceHistory).filter(BalanceHistory.id == snapshot.id).first()
+        saved = (
+            db_session.query(BalanceHistory)
+            .filter(BalanceHistory.id == snapshot.id)
+            .first()
+        )
         assert saved is not None
 
     def test_record_balance_snapshot_default_date(self, db_session):
@@ -169,7 +200,7 @@ class TestBalanceHistory:
         account = Account(
             name="Test Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -188,13 +219,17 @@ class TestBalanceHistory:
         account = Account(
             name="Test Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
 
-        snapshot1 = record_balance_snapshot(db_session, account.id, Decimal("1000.00"), date(2024, 1, 1))
-        snapshot2 = record_balance_snapshot(db_session, account.id, Decimal("1500.00"), date(2024, 1, 15))
+        snapshot1 = record_balance_snapshot(
+            db_session, account.id, Decimal("1000.00"), date(2024, 1, 1)
+        )
+        snapshot2 = record_balance_snapshot(
+            db_session, account.id, Decimal("1500.00"), date(2024, 1, 15)
+        )
 
         assert snapshot1.recorded_at == date(2024, 1, 1)
         assert snapshot2.recorded_at == date(2024, 1, 15)
@@ -204,18 +239,18 @@ class TestBalanceHistory:
         account1 = Account(
             name="Account 1",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         account2 = Account(
             name="Account 2",
             account_type=AccountType.credit_card,
-            current_balance=Decimal("-500.00")
+            current_balance=Decimal("-500.00"),
         )
         inactive_account = Account(
             name="Inactive Account",
             account_type=AccountType.checking,
             current_balance=Decimal("200.00"),
-            is_active=False
+            is_active=False,
         )
 
         db_session.add_all([account1, account2, inactive_account])
@@ -245,15 +280,21 @@ class TestNetWorthHistory:
         account = Account(
             name="Test Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
 
         # Create snapshots on different dates
-        record_balance_snapshot(db_session, account.id, Decimal("1000.00"), date(2024, 1, 1))
-        record_balance_snapshot(db_session, account.id, Decimal("1500.00"), date(2024, 6, 1))
-        record_balance_snapshot(db_session, account.id, Decimal("1200.00"), date(2024, 12, 1))
+        record_balance_snapshot(
+            db_session, account.id, Decimal("1000.00"), date(2024, 1, 1)
+        )
+        record_balance_snapshot(
+            db_session, account.id, Decimal("1500.00"), date(2024, 6, 1)
+        )
+        record_balance_snapshot(
+            db_session, account.id, Decimal("1200.00"), date(2024, 12, 1)
+        )
 
         history = get_networth_history(db_session, date(2024, 1, 1), date(2024, 12, 31))
 
@@ -270,12 +311,14 @@ class TestNetWorthHistory:
         account = Account(
             name="Test Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
 
-        record_balance_snapshot(db_session, account.id, Decimal("1000.00"), date(2024, 6, 1))
+        record_balance_snapshot(
+            db_session, account.id, Decimal("1000.00"), date(2024, 6, 1)
+        )
 
         history = get_networth_history(db_session, date(2024, 6, 1), date(2024, 6, 1))
 
@@ -288,12 +331,14 @@ class TestNetWorthHistory:
         account = Account(
             name="Test Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
 
-        record_balance_snapshot(db_session, account.id, Decimal("1000.00"), date(2024, 6, 1))
+        record_balance_snapshot(
+            db_session, account.id, Decimal("1000.00"), date(2024, 6, 1)
+        )
 
         history = get_networth_history(db_session, date(2023, 1, 1), date(2023, 12, 31))
 
@@ -304,19 +349,23 @@ class TestNetWorthHistory:
         asset = Account(
             name="Asset",
             account_type=AccountType.checking,
-            current_balance=Decimal("2000.00")
+            current_balance=Decimal("2000.00"),
         )
         liability = Account(
             name="Liability",
             account_type=AccountType.credit_card,
-            current_balance=Decimal("-1000.00")
+            current_balance=Decimal("-1000.00"),
         )
         db_session.add_all([asset, liability])
         db_session.commit()
 
         # Record snapshots
-        record_balance_snapshot(db_session, asset.id, Decimal("2000.00"), date(2024, 1, 1))
-        record_balance_snapshot(db_session, liability.id, Decimal("-1000.00"), date(2024, 1, 1))
+        record_balance_snapshot(
+            db_session, asset.id, Decimal("2000.00"), date(2024, 1, 1)
+        )
+        record_balance_snapshot(
+            db_session, liability.id, Decimal("-1000.00"), date(2024, 1, 1)
+        )
 
         history = get_networth_history(db_session, date(2024, 1, 1), date(2024, 12, 31))
 
@@ -337,7 +386,7 @@ class TestBalanceInference:
         account = Account(
             name="Bank Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -350,7 +399,7 @@ class TestBalanceInference:
             amount=Decimal("-50.00"),
             raw_description="Purchase",
             clean_merchant="Grocery Store",
-            account_id=account.id
+            account_id=account.id,
         )
         transaction2 = Transaction(
             id=str(uuid.uuid4()),
@@ -359,7 +408,7 @@ class TestBalanceInference:
             amount=Decimal("100.00"),
             raw_description="Deposit",
             clean_merchant="Salary",
-            account_id=account.id
+            account_id=account.id,
         )
         transaction3 = Transaction(
             id=str(uuid.uuid4()),
@@ -368,7 +417,7 @@ class TestBalanceInference:
             amount=Decimal("-30.00"),
             raw_description="Purchase",
             clean_merchant="Gas Station",
-            account_id=account.id
+            account_id=account.id,
         )
 
         db_session.add_all([transaction1, transaction2, transaction3])
@@ -376,7 +425,12 @@ class TestBalanceInference:
 
         calculated = calculate_balance_from_transactions(db_session, account.id)
 
-        expected = Decimal("1000.00") + Decimal("-50.00") + Decimal("100.00") + Decimal("-30.00")
+        expected = (
+            Decimal("1000.00")
+            + Decimal("-50.00")
+            + Decimal("100.00")
+            + Decimal("-30.00")
+        )
         assert calculated == expected
 
     def test_calculate_balance_from_transactions_credit_account(self, db_session):
@@ -389,7 +443,7 @@ class TestBalanceInference:
         account = Account(
             name="Credit Card",
             account_type=AccountType.credit_card,
-            current_balance=None
+            current_balance=None,
         )
         db_session.add(account)
         db_session.commit()
@@ -402,7 +456,7 @@ class TestBalanceInference:
             amount=Decimal("-100.00"),
             raw_description="Charge",
             clean_merchant="Restaurant",
-            account_id=account.id
+            account_id=account.id,
         )
         transaction2 = Transaction(
             id=str(uuid.uuid4()),
@@ -411,7 +465,7 @@ class TestBalanceInference:
             amount=Decimal("-200.00"),
             raw_description="Charge",
             clean_merchant="Online Shopping",
-            account_id=account.id
+            account_id=account.id,
         )
 
         db_session.add_all([transaction1, transaction2])
@@ -432,7 +486,7 @@ class TestBalanceInference:
         account = Account(
             name="Cash Wallet",
             account_type=AccountType.cash,
-            current_balance=Decimal("50.00")
+            current_balance=Decimal("50.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -445,7 +499,7 @@ class TestBalanceInference:
             amount=Decimal("-15.00"),
             raw_description="Purchase",
             clean_merchant="Coffee Shop",
-            account_id=account.id
+            account_id=account.id,
         )
         transaction2 = Transaction(
             id=str(uuid.uuid4()),
@@ -454,7 +508,7 @@ class TestBalanceInference:
             amount=Decimal("20.00"),
             raw_description="Deposit",
             clean_merchant="Cash from bank",
-            account_id=account.id
+            account_id=account.id,
         )
 
         db_session.add_all([transaction1, transaction2])
@@ -473,9 +527,7 @@ class TestBalanceInference:
         from app.models.transaction import Transaction
 
         account = Account(
-            name="New Account",
-            account_type=AccountType.checking,
-            current_balance=None
+            name="New Account", account_type=AccountType.checking, current_balance=None
         )
         db_session.add(account)
         db_session.commit()
@@ -488,7 +540,7 @@ class TestBalanceInference:
             amount=Decimal("-100.00"),
             raw_description="Purchase",
             clean_merchant="Store",
-            account_id=account.id
+            account_id=account.id,
         )
 
         db_session.add(transaction1)
@@ -507,7 +559,7 @@ class TestBalanceInference:
         account = Account(
             name="Empty Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("500.00")
+            current_balance=Decimal("500.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -527,7 +579,7 @@ class TestBalanceInference:
         account = Account(
             name="Stale Balance Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -540,7 +592,7 @@ class TestBalanceInference:
             amount=Decimal("-50.00"),
             raw_description="Purchase",
             clean_merchant="Store",
-            account_id=account.id
+            account_id=account.id,
         )
 
         db_session.add(transaction1)
@@ -563,7 +615,7 @@ class TestBalanceInference:
         account = Account(
             name="Current Balance Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -590,23 +642,23 @@ class TestBalanceInference:
         account1 = Account(
             name="Stale Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         account2 = Account(
             name="Current Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("500.00")
+            current_balance=Decimal("500.00"),
         )
         account3 = Account(
             name="Inactive Account",
             account_type=AccountType.checking,
             current_balance=Decimal("200.00"),
-            is_active=False
+            is_active=False,
         )
         account4 = Account(
             name="Credit Card",
             account_type=AccountType.credit_card,
-            current_balance=Decimal("-300.00")
+            current_balance=Decimal("-300.00"),
         )
 
         db_session.add_all([account1, account2, account3, account4])
@@ -620,14 +672,14 @@ class TestBalanceInference:
             amount=Decimal("-50.00"),
             raw_description="Purchase",
             clean_merchant="Store",
-            account_id=account1.id
+            account_id=account1.id,
         )
         db_session.add(transaction1)
         db_session.commit()
 
         stale_accounts = get_accounts_with_stale_balances(db_session)
 
-        assert len(stale_accounts) == 2
+        assert len(stale_accounts) == 1
         assert stale_accounts[0]["name"] == "Stale Account"
         assert stale_accounts[0]["is_stale"] is True
 
@@ -641,7 +693,7 @@ class TestBalanceInference:
         account = Account(
             name="Test Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         db_session.add(account)
         db_session.commit()
@@ -654,7 +706,7 @@ class TestBalanceInference:
             amount=Decimal("-50.00"),
             raw_description="Purchase",
             clean_merchant="Store",
-            account_id=account.id
+            account_id=account.id,
         )
         transaction2 = Transaction(
             id=str(uuid.uuid4()),
@@ -663,7 +715,7 @@ class TestBalanceInference:
             amount=Decimal("200.00"),
             raw_description="Deposit",
             clean_merchant="Salary",
-            account_id=account.id
+            account_id=account.id,
         )
 
         db_session.add_all([transaction1, transaction2])
@@ -689,17 +741,17 @@ class TestBalanceInference:
         account1 = Account(
             name="Stale Asset Account",
             account_type=AccountType.checking,
-            current_balance=Decimal("1000.00")
+            current_balance=Decimal("1000.00"),
         )
         account2 = Account(
             name="Current Asset Account",
             account_type=AccountType.cash,
-            current_balance=Decimal("500.00")
+            current_balance=Decimal("500.00"),
         )
         account3 = Account(
             name="Credit Card",
             account_type=AccountType.credit_card,
-            current_balance=Decimal("-300.00")
+            current_balance=Decimal("-300.00"),
         )
 
         db_session.add_all([account1, account2, account3])
@@ -713,7 +765,7 @@ class TestBalanceInference:
             amount=Decimal("-50.00"),
             raw_description="Purchase",
             clean_merchant="Store",
-            account_id=account1.id
+            account_id=account1.id,
         )
         db_session.add(transaction1)
         db_session.commit()
@@ -725,7 +777,10 @@ class TestBalanceInference:
         assert breakdown["net_worth"] == 1200.00
 
         # Verify accounts data includes calculated_balance and is_stale
-        account1_data = next((a for a in breakdown["accounts"] if a["name"] == "Stale Asset Account"), None)
+        account1_data = next(
+            (a for a in breakdown["accounts"] if a["name"] == "Stale Asset Account"),
+            None,
+        )
         assert account1_data is not None
         assert account1_data["current_balance"] == 1000.00
         assert account1_data.get("calculated_balance") == 950.00

@@ -11,15 +11,13 @@ from decimal import Decimal
 from app.dependencies import get_db
 from app.models import Budget, Category, Transaction
 from app.models.budget import BudgetPeriod
-
-from app.dependencies import get_db
-from app.models import Budget, Category, Transaction
 from app.schemas.budget import (
     BudgetCreate,
     BudgetUpdate,
     BudgetResponse,
     BudgetList,
     BudgetProgress,
+    BudgetSuggestionAccept,
 )
 from app.services.budget_service import (
     get_budget_progress,
@@ -62,32 +60,39 @@ def get_budget_suggestions_endpoint(
 
 @router.post("/suggestions/accept", response_model=BudgetList, status_code=201)
 def accept_budget_suggestions(
-    suggestions: List[dict],
+    suggestions: List[BudgetSuggestionAccept],
     db: Session = Depends(get_db),
 ):
     """Create budgets from suggestions."""
     created_budgets = []
-    for suggestion in suggestions:
-        category_id = suggestion.get("category_id")
-        amount = suggestion.get("amount")
-        period = suggestion.get("period", "monthly")
+    existing_category_ids = set(
+        cat_id
+        for (cat_id,) in db.query(Budget.category_id)
+        .filter(Budget.is_active == True, Budget.category_id.isnot(None))
+        .all()
+        if cat_id
+    )
 
-        if not category_id or not amount:
+    for suggestion in suggestions:
+        if suggestion.category_id in existing_category_ids:
             continue
 
-        category = db.query(Category).filter(Category.id == category_id).first()
+        category = (
+            db.query(Category).filter(Category.id == suggestion.category_id).first()
+        )
         if not category:
             continue
 
         db_budget = Budget(
-            category_id=category_id,
-            amount=Decimal(str(amount)),
-            period=BudgetPeriod(period),
+            category_id=suggestion.category_id,
+            amount=Decimal(str(suggestion.amount)),
+            period=BudgetPeriod(suggestion.period),
             start_date=datetime.utcnow(),
             is_active=True,
         )
         db.add(db_budget)
         created_budgets.append(db_budget)
+        existing_category_ids.add(suggestion.category_id)
 
     db.commit()
     for budget in created_budgets:

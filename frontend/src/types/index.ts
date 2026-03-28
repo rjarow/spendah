@@ -479,11 +479,6 @@ export interface BudgetSuggestion {
   transaction_count: number
 }
 
-export interface BudgetSuggestionsResponse {
-  items: BudgetSuggestion[]
-  total: number
-}
-
 // Coach types
 export interface ChatRequest {
   message: string

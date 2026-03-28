@@ -217,7 +217,7 @@ export default function Budgets() {
                 <div>
                   <h3 className="font-medium text-gray-900">{suggestion.category_name}</h3>
                   <p className="text-sm text-gray-500">
-                    Avg ${formatCurrency(suggestion.avg_monthly_spend)}/mo over 3 months ({suggestion.transaction_count} transactions)
+                    Avg {formatCurrency(suggestion.avg_monthly_spend)}/mo over 3 months ({suggestion.transaction_count} transactions)
                   </p>
                   <p className="text-sm font-medium text-purple-600 mt-1">
                     Suggested budget: {formatCurrency(suggestion.suggested_amount)}/mo

@@ -270,6 +270,12 @@ def get_budget_suggestions(db: Session, months: int = 3) -> List[Dict]:
         .all()
     )
 
+    all_category_ids = [cat_id for cat_id, _, _ in spending_by_category if cat_id]
+    categories_by_id: Dict[str, str] = {}
+    if all_category_ids:
+        categories = db.query(Category).filter(Category.id.in_(all_category_ids)).all()
+        categories_by_id = {str(c.id): c.name for c in categories}
+
     suggestions = []
     for category_id, transaction_count, total_spent in spending_by_category:
         if category_id in existing_budget_categories:
@@ -281,14 +287,14 @@ def get_budget_suggestions(db: Session, months: int = 3) -> List[Dict]:
         avg_monthly_spend = float(total_spent) / months
         suggested_amount = math.ceil(avg_monthly_spend / 10) * 10
 
-        category = db.query(Category).filter(Category.id == category_id).first()
-        if not category:
+        category_name = categories_by_id.get(category_id)
+        if not category_name:
             continue
 
         suggestions.append(
             {
                 "category_id": category_id,
-                "category_name": category.name,
+                "category_name": category_name,
                 "avg_monthly_spend": round(avg_monthly_spend, 2),
                 "suggested_amount": suggested_amount,
                 "transaction_count": transaction_count,

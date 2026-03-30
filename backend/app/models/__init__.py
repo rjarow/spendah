@@ -17,6 +17,7 @@ from app.models.budget import Budget, BudgetPeriod
 from app.models.conversation import Conversation, Message, MessageRole
 from app.models.rule import CategorizationRule, MatchField, MatchType
 from app.models.ai_token_usage import AITokenUsage
+from app.models.pending_import import PendingImport
 
 __all__ = [
     "Account",
@@ -50,4 +51,5 @@ __all__ = [
     "MatchField",
     "MatchType",
     "AITokenUsage",
+    "PendingImport",
 ]

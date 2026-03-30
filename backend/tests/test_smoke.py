@@ -28,7 +28,7 @@ from app.models.transaction import Transaction
 from app.models.budget import Budget, BudgetPeriod
 from app.models.alert import AlertSettings
 from app.seed import seed_categories
-from app.services.import_service import save_upload, get_preview, process_import, PENDING_IMPORTS
+from app.services.import_service import save_upload, get_preview, process_import
 from app.services.deduplication_service import generate_transaction_hash
 from app.schemas.import_file import ImportConfirmRequest, ColumnMapping
 
@@ -125,7 +125,9 @@ class TestSmokeE2E:
         file_path, import_id = save_upload(csv_content, "test_transactions.csv")
 
         try:
-            preview = get_preview(file_path, import_id, "test_transactions.csv")
+            preview = get_preview(
+                smoke_db_session, file_path, import_id, "test_transactions.csv"
+            )
 
             assert preview.row_count == 4
             assert len(preview.headers) == 3
@@ -226,8 +228,8 @@ class TestSmokeE2E:
         file_path, import_id = save_upload(csv_content, "test_dup.csv")
 
         try:
-            # Need to populate PENDING_IMPORTS via get_preview
-            get_preview(file_path, import_id, "test_dup.csv")
+            # Need to populate pending import via get_preview
+            get_preview(smoke_db_session, file_path, import_id, "test_dup.csv")
 
             request = ImportConfirmRequest(
                 account_id=account.id,

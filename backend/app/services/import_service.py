@@ -31,6 +31,7 @@ from app.models.import_log import ImportLog
 from app.models.account import Account, AccountType
 from app.models.category import Category
 from app.models.user_correction import UserCorrection
+from app.models.pending_import import PendingImport
 from app.schemas.import_file import (
     ImportUploadResponse,
     ImportConfirmRequest,
@@ -86,9 +87,46 @@ def get_or_create_account(
 
 logger = logging.getLogger(__name__)
 
-PENDING_IMPORTS: Dict[str, Dict[str, Any]] = {}
+MAX_ROWS = 100000
 
-MAX_ROWS = 100000  # Maximum rows per import
+
+def save_pending(db: Session, import_id: str, data: Dict[str, Any]) -> None:
+    row = PendingImport(
+        id=import_id,
+        file_path=data.get("file_path", ""),
+        filename=data.get("filename", ""),
+        parser_type=data.get("parser_type", ""),
+        data_json=json.dumps(data),
+    )
+    db.add(row)
+    db.commit()
+
+
+def get_pending(db: Session, import_id: str) -> Optional[Dict[str, Any]]:
+    row = db.query(PendingImport).filter(PendingImport.id == import_id).first()
+    if not row:
+        return None
+    data = json.loads(row.data_json) if row.data_json else {}
+    data["file_path"] = row.file_path
+    data["filename"] = row.filename
+    data["parser_type"] = row.parser_type
+    return data
+
+
+def delete_pending(db: Session, import_id: str) -> None:
+    row = db.query(PendingImport).filter(PendingImport.id == import_id).first()
+    if row:
+        db.delete(row)
+        db.commit()
+
+
+def cleanup_stale_pending(db: Session, max_age_hours: int = 24) -> int:
+    from datetime import timedelta
+
+    cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+    count = db.query(PendingImport).filter(PendingImport.created_at < cutoff).delete()
+    db.commit()
+    return count
 
 
 def sanitize_filename(filename: str) -> str:
@@ -133,7 +171,9 @@ def save_upload(file_content: bytes, filename: str):
     return file_path, import_id
 
 
-def get_preview(file_path: Path, import_id: str, filename: str) -> ImportUploadResponse:
+def get_preview(
+    db: Session, file_path: Path, import_id: str, filename: str
+) -> ImportUploadResponse:
     """Get file preview for confirmation"""
     parser = get_parser(file_path)
     if not parser:
@@ -152,11 +192,15 @@ def get_preview(file_path: Path, import_id: str, filename: str) -> ImportUploadR
             ofx = OfxParser.parse(f)
             row_count = sum(len(acc.statement.transactions) for acc in ofx.accounts)
 
-    PENDING_IMPORTS[import_id] = {
-        "file_path": str(file_path),
-        "filename": filename,
-        "parser_type": type(parser).__name__,
-    }
+    save_pending(
+        db,
+        import_id,
+        {
+            "file_path": str(file_path),
+            "filename": filename,
+            "parser_type": type(parser).__name__,
+        },
+    )
 
     return ImportUploadResponse(
         import_id=import_id,
@@ -232,17 +276,21 @@ async def get_preview_with_ai(
             ofx = OfxParser.parse(f)
             row_count = sum(len(acc.statement.transactions) for acc in ofx.accounts)
 
-    PENDING_IMPORTS[import_id] = {
-        "file_path": str(file_path),
-        "filename": filename,
-        "parser_type": type(parser).__name__,
-        "detected_format": detected_format,
-        "extracted_balance": float(balance) if balance else None,
-        "header_fingerprint": header_fingerprint
-        if isinstance(parser, CSVParser)
-        else None,
-        "headers": headers if isinstance(parser, CSVParser) else None,
-    }
+    save_pending(
+        db,
+        import_id,
+        {
+            "file_path": str(file_path),
+            "filename": filename,
+            "parser_type": type(parser).__name__,
+            "detected_format": detected_format,
+            "extracted_balance": float(balance) if balance else None,
+            "header_fingerprint": header_fingerprint
+            if isinstance(parser, CSVParser)
+            else None,
+            "headers": headers if isinstance(parser, CSVParser) else None,
+        },
+    )
 
     return ImportUploadResponse(
         import_id=import_id,
@@ -272,10 +320,10 @@ async def process_import(
     - Pre-fetched alert settings
     - Parallel AI calls with asyncio.gather
     """
-    if import_id not in PENDING_IMPORTS:
+    pending = get_pending(db, import_id)
+    if pending is None:
         raise ValueError(f"Import {import_id} not found or expired")
 
-    pending = PENDING_IMPORTS[import_id]
     file_path = Path(pending["file_path"])
     filename = pending["filename"]
 
@@ -672,7 +720,7 @@ async def process_import(
         processed_path.mkdir(parents=True, exist_ok=True)
         shutil.move(str(file_path), str(processed_path / file_path.name))
 
-        del PENDING_IMPORTS[import_id]
+        delete_pending(db, import_id)
 
         try:
             check_all_budget_alerts(db)
@@ -702,8 +750,7 @@ async def process_import(
         failed_path.mkdir(parents=True, exist_ok=True)
         shutil.move(str(file_path), str(failed_path / file_path.name))
 
-        if import_id in PENDING_IMPORTS:
-            del PENDING_IMPORTS[import_id]
+        delete_pending(db, import_id)
 
         raise
 
